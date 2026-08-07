@@ -8,5 +8,6 @@ backend/data/dashboard.json
 .env.*.local
 supabase/.temp/
 supabase/.branches/
-# 원본 목업 (배포/원격 제외)
+
+# Local UI mockup source (not pushed)
 ui mokup/
