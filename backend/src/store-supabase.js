@@ -2,6 +2,29 @@ const { getSupabaseAdmin } = require("./supabase");
 const { createSeedData } = require("./seed-data");
 const { uid } = require("./store-utils");
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientJwtError(err) {
+  const msg = String(err?.message || err || "");
+  return /JWT issued at future/i.test(msg);
+}
+
+async function withSupabaseRetry(fn, attempts = 3) {
+  let lastErr;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientJwtError(err) || i === attempts - 1) throw err;
+      await sleep(400 * (i + 1));
+    }
+  }
+  throw lastErr;
+}
+
 function mapCompanyRow(row, participants = []) {
   const extras = row.extras && typeof row.extras === "object" ? row.extras : {};
   return {
@@ -59,6 +82,7 @@ function mapTaskRow(row) {
 }
 
 async function readData() {
+  return withSupabaseRetry(async () => {
   const sb = getSupabaseAdmin();
 
   const [{ data: companies, error: cErr }, { data: participants, error: pErr }, { data: tasks, error: tErr }, { data: metaRows, error: mErr }] =
@@ -97,9 +121,11 @@ async function readData() {
       lastParticipantSyncAt: metaValue.lastParticipantSyncAt || null
     }
   };
+  });
 }
 
 async function writeData(data) {
+  return withSupabaseRetry(async () => {
   const sb = getSupabaseAdmin();
   const companies = data.companies || [];
   const nowIso = new Date().toISOString();
@@ -218,6 +244,7 @@ async function writeData(data) {
   if (metaErr) throw metaErr;
 
   return { companies, meta };
+  });
 }
 
 async function resetData() {
