@@ -21,6 +21,7 @@ Windows에서는 `start.bat`을 더블클릭해도 됩니다.
 | Health | http://127.0.0.1:3080/api/health → `"db":"supabase"` |
 | 관리자 비밀번호 | `ADMIN_PASSWORD` (기본 `admin2026`) |
 | Vercel 배포 | [docs/DEPLOY.md](docs/DEPLOY.md#phase-4-호스팅-배포) (`vercel` / Git 연동) |
+| 교훈·재발 방지 | [docs/LESSONS_LEARNED.md](docs/LESSONS_LEARNED.md) |
 
 ## 환경변수 (요약)
 
