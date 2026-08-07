@@ -7,12 +7,20 @@ function createRouter() {
   const router = express.Router();
 
   router.get("/health", (_req, res) => {
+    const db = isSupabaseConfigured() ? "supabase" : "json-file";
     res.json({
       ok: true,
       service: "ax-pjt-dashboard",
-      db: isSupabaseConfigured() ? "supabase" : "json-file",
+      db,
       runtime: process.env.VERCEL ? "vercel" : "node",
-      time: new Date().toISOString()
+      supabaseConfigured: isSupabaseConfigured(),
+      time: new Date().toISOString(),
+      ...(process.env.VERCEL && !isSupabaseConfigured()
+        ? {
+            warning:
+              "Vercel Environment Variables에 SUPABASE_URL, SUPABASE_SECRET_KEY를 설정하세요."
+          }
+        : {})
     });
   });
 

@@ -133,7 +133,10 @@ SUPABASE_PUBLISHABLE_KEY=...     # 또는 SUPABASE_ANON_KEY (선택)
 
 로컬에서 Vercel 런타임 흉내: `npx vercel dev` (CLI ≥ 47.0.5)
 
-리전: `vercel.json`의 `sin1`(싱가포르) — Supabase `ap-southeast-1`과 맞춤. 변경 시 [Vercel regions](https://vercel.com/docs/regions) 참고.
+리전: `vercel.json`의 `sin1`(싱가포르) — Supabase `ap-southeast-1`과 맞춤.
+
+API는 `api/index.js` Serverless Function + `rewrites`로 연결됩니다.  
+정적 UI는 `public/` CDN, `/api/*`는 Express 핸들러입니다.
 
 ### 옵션 B — Render (Blueprint)
 

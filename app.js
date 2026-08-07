@@ -1,9 +1,6 @@
 /**
- * Vercel Express 엔트리포인트.
- * @see https://vercel.com/docs/frameworks/backend/express
- *
- * 로컬/Docker는 `npm start` → backend/src/server.js (listen).
- * Vercel은 이 파일을 감지해 Fluid compute 단일 Function으로 실행합니다.
+ * Express zero-config 대안 엔트리 (로컬 require / 일부 런타임용).
+ * Vercel 배포의 주 엔트리는 api/index.js 입니다.
  */
 require("./backend/src/env");
 const { createApp } = require("./backend/src/app");
