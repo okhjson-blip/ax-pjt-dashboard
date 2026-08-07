@@ -192,9 +192,9 @@
           <div>
             <span class="brand-mark">AX</span>
             <h1>AI 프로젝트 통합 대시보드</h1>
-            <p>참여자 등록, 협력사별 진척도 확인, 개인 과제 관리, 강사 피드백, 주간 레포트 발행까지 한 화면 흐름으로 연결합니다.</p>
+            <p>참여자 등록, 협력사별 진척도 확인, 개인 과제 관리, 컨설턴트 피드백, 주간 레포트 발행까지 한 화면 흐름으로 연결합니다.</p>
             <div class="journey-list">
-              ${["참여자 등록 및 로그인", "협력사별 참여 현황 확인", "개인 과제 진척 업데이트", "강사 피드백 작성", "주간 레포트 발행"].map((item, i) => `
+              ${["참여자 등록 및 로그인", "협력사별 참여 현황 확인", "개인 과제 진척 업데이트", "컨설턴트 피드백 작성", "주간 레포트 발행"].map((item, i) => `
                 <div class="journey-item">
                   <span class="journey-num">${i + 1}</span>
                   <span>${item}</span>
@@ -202,7 +202,7 @@
               `).join("")}
             </div>
           </div>
-          <p class="helper">로그인 정보: 관리자 비밀번호는 <strong>admin2026</strong>, 참여자는 예시 이름과 이메일을 사용하거나 신규 등록 흐름을 확인할 수 있습니다.</p>
+          <p class="helper">참여자는 협력사·이름·이메일로 로그인하거나 신규 등록할 수 있습니다.</p>
         </section>
         <section class="login-panel-wrap">
           <div class="login-panel">
@@ -221,7 +221,7 @@
     return `
       <div class="field">
         <label for="admin-password">관리자 비밀번호</label>
-        <input id="admin-password" type="password" placeholder="admin2026" />
+        <input id="admin-password" type="password" placeholder="비밀번호 입력" autocomplete="current-password" />
       </div>
       <div id="login-error" class="error-text"></div>
       <button class="btn primary" style="width:100%" data-action="admin-login">관리자 로그인</button>
