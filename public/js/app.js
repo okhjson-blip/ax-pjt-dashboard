@@ -6,7 +6,7 @@
     loading: true,
     saving: false,
     auth: null,
-    loginTab: "admin",
+    loginTab: "participant",
     view: "login",
     selectedCompanyId: null,
     selectedParticipantId: null,
@@ -207,8 +207,8 @@
         <section class="login-panel-wrap">
           <div class="login-panel">
             <div class="tabs">
-              <button class="tab-btn ${state.loginTab === "admin" ? "active" : ""}" data-action="login-tab" data-tab="admin">관리자</button>
               <button class="tab-btn ${state.loginTab === "participant" ? "active" : ""}" data-action="login-tab" data-tab="participant">참여자</button>
+              <button class="tab-btn ${state.loginTab === "admin" ? "active" : ""}" data-action="login-tab" data-tab="admin">관리자</button>
             </div>
             ${state.loginTab === "admin" ? renderAdminLogin() : renderParticipantLogin()}
           </div>
