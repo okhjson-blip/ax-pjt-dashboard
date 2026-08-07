@@ -1,0 +1,29 @@
+{
+  "name": "ax-pjt-dashboard",
+  "version": "1.0.0",
+  "description": "AI 프로젝트 통합 대시보드 (Express + Supabase)",
+  "private": true,
+  "main": "app.js",
+  "scripts": {
+    "start": "node backend/src/server.js",
+    "dev": "node --watch backend/src/server.js",
+    "reset-data": "node backend/src/reset-data.js",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:status": "supabase status",
+    "db:reset": "supabase db reset",
+    "db:push": "supabase db push --linked --yes",
+    "db:seed": "supabase db query --linked -f supabase/seed.sql",
+    "db:link": "supabase link --yes",
+    "db:projects": "supabase projects list",
+    "db:migration:new": "supabase migration new"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}

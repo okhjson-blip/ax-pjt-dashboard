@@ -1,0 +1,30 @@
+# Vercel / local tooling
+.vercel
+.env
+.env.*
+!.env.example
+
+# deps & caches
+node_modules
+npm-debug.log*
+*.log
+
+# local supabase
+supabase/.temp
+supabase/.branches
+
+# editor / OS
+.DS_Store
+*.swp
+
+# non-runtime assets (keep deploy bundle small)
+ui mokup
+docs
+scripts
+supabase
+*.md
+!README.md
+Dockerfile
+render.yaml
+start.bat
+

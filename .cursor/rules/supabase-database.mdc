@@ -1,0 +1,15 @@
+---
+description: 모든 DB는 Supabase(Postgres)를 사용한다
+alwaysApply: true
+---
+
+# Database Policy — Supabase Only
+
+- 데이터 저장·조회·스키마 변경은 항상 **Supabase(Postgres)** 를 사용한다.
+- JSON 파일, SQLite, 로컬 인메모리 DB, Firebase 등 다른 DB를 새로 도입하지 않는다.
+- 기존 로컬/파일 저장소를 교체할 때도 Supabase로 마이그레이션한다.
+- 스키마 변경은 `supabase migration`으로 관리한다. 임의 SQL 파일명/경로를 만들지 않는다.
+- DB 관련 작업 시 설치된 **Supabase skill**과 **Supabase MCP**를 우선 사용한다.
+- 프론트엔드에는 anon/publishable key만 사용하고, `service_role`은 서버·Edge에서만 사용한다.
+- `public` 스키마 테이블은 **RLS를 기본 활성화**하고, 실제 권한 모델에 맞는 policy를 작성한다.
+- Auth 권한 판단에 `user_metadata`를 쓰지 않는다. 필요 시 `app_metadata`를 사용한다.

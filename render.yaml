@@ -1,0 +1,31 @@
+# Render Blueprint — https://render.com
+# Dashboard에서 New → Blueprint → 이 저장소 연결
+# 시크릿은 Dashboard에서 입력. 키 이름은 ANON/SERVICE_ROLE 또는
+# PUBLISHABLE/SECRET 모두 backend/src/env.js 별칭으로 인식됩니다.
+services:
+  - type: web
+    name: ax-pjt-dashboard
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node backend/src/server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false

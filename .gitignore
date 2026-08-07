@@ -1,0 +1,10 @@
+node_modules/
+backend/data/dashboard.json
+.vercel
+.DS_Store
+*.log
+.env
+.env.local
+.env.*.local
+supabase/.temp/
+supabase/.branches/

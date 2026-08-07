@@ -1,0 +1,15 @@
+node_modules
+npm-debug.log
+.env
+.env.*
+!.env.example
+backend/data
+.git
+.cursor
+supabase/.temp
+supabase/.branches
+ui mokup
+docs
+*.md
+.DS_Store
+frontend/_extract.html
