@@ -802,14 +802,17 @@
                   const sched = scheduleStatus(company, participant);
                   const selected = participant.id === state.selectedParticipantId;
                   return `
-                  <button type="button" class="admin-person-item ${selected ? "active" : ""}" data-action="select-person" data-company="${company.id}" data-participant="${participant.id}">
-                    <div class="admin-person-meta">
-                      <strong>${escapeHtml(participant.name)}</strong>
-                      <div class="person-meta">${escapeHtml(participant.dept || "-")} · ${escapeHtml(participant.email)}</div>
-                    </div>
-                    ${renderProgress(avgProgress(participant), sched.cls)}
-                    <span class="badge ${sched.cls}">${sched.label}</span>
-                  </button>
+                  <div class="admin-person-row ${selected ? "active" : ""}">
+                    <button type="button" class="admin-person-item" data-action="select-person" data-company="${company.id}" data-participant="${participant.id}">
+                      <div class="admin-person-meta">
+                        <strong>${escapeHtml(participant.name)}</strong>
+                        <div class="person-meta">${escapeHtml(participant.dept || "-")} · ${escapeHtml(participant.email)}</div>
+                      </div>
+                      ${renderProgress(avgProgress(participant), sched.cls)}
+                      <span class="badge ${sched.cls}">${sched.label}</span>
+                    </button>
+                    <button type="button" class="btn ghost small danger" data-action="delete-participant" data-company="${company.id}" data-participant="${participant.id}" title="참여자 삭제">삭제</button>
+                  </div>
                 `;
                 })
                 .join("")}
@@ -1546,6 +1549,26 @@
         state.selectedTaskId = null;
       }
       await persist(`"${company.name}" 협력사를 삭제했습니다.`);
+      render();
+    }
+
+    if (action === "delete-participant") {
+      if (!isAdmin()) return toast("관리자만 참여자를 삭제할 수 있습니다.");
+      const company = state.companies.find((c) => c.id === el.dataset.company) || currentCompany();
+      const participant = company?.participants?.find((p) => p.id === el.dataset.participant);
+      if (!company || !participant) return toast("참여자를 찾을 수 없습니다.");
+      const taskCount = (participant.tasks || []).length;
+      const okConfirm = window.confirm(
+        `"${participant.name}" 참여자를 삭제할까요?\n과제 ${taskCount}건이 함께 삭제되며 DB에도 반영됩니다.`
+      );
+      if (!okConfirm) return;
+      company.participants = (company.participants || []).filter((p) => p.id !== participant.id);
+      if (state.selectedParticipantId === participant.id) {
+        state.selectedParticipantId = company.participants[0]?.id || null;
+        state.selectedTaskId = null;
+        state.selectedWeek = null;
+      }
+      await persist(`"${participant.name}" 참여자를 삭제했습니다.`);
       render();
     }
 

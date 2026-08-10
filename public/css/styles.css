@@ -636,6 +636,23 @@ input[type="range"].range-gray { accent-color: var(--muted); }
   gap: 8px;
 }
 
+.admin-person-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.admin-person-row.active .admin-person-item {
+  border-color: var(--primary);
+  box-shadow: inset 3px 0 0 var(--primary);
+  background: rgba(var(--primary-rgb), 0.04);
+}
+
+.admin-person-row .btn.danger {
+  align-self: center;
+}
+
 .admin-person-item {
   width: 100%;
   display: grid;
@@ -1080,8 +1097,16 @@ input[type="range"].range-gray { accent-color: var(--muted); }
     grid-template-columns: 1fr;
   }
 
+  .admin-person-row {
+    grid-template-columns: 1fr;
+  }
+
   .admin-person-item {
     grid-template-columns: 1fr;
+  }
+
+  .admin-person-row .btn.danger {
+    width: 100%;
   }
 
   .filters input,
