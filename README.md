@@ -37,6 +37,7 @@ Windows에서는 `start.bat`을 더블클릭해도 됩니다.
 | 교훈·재발 방지 | [docs/LESSONS_LEARNED.md](docs/LESSONS_LEARNED.md) |
 | 개발계획서 | [개발계획서.md](개발계획서.md) |
 | UX 시나리오 | [UX시나리오설계서.md](UX시나리오설계서.md) |
+| UI 디자인 | [UI디자인설계서.md](UI디자인설계서.md) |
 
 ## 환경변수 (요약)
 

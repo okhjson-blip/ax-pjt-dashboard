@@ -925,15 +925,22 @@
                             <strong class="task-row-title">${escapeHtml(t.name)}</strong>
                             <span class="badge gray">${escapeHtml(t.difficulty)}</span>
                             <span class="badge ${taskSched.cls} task-status-badge">${taskSched.label}</span>
-                            <button class="btn small ${isCompleted ? "ghost" : "primary"}" data-action="select-task" data-task="${t.id}" title="클릭 시 우측 주간보고 작성 폼으로 이동" style="${isCompleted ? "border-color:#2e7d32; color:#2e7d32; background:#e8f5e9;" : ""}">
+                            <div class="task-row-actions">
+                              <button class="btn small ${isCompleted ? "ghost" : "primary"}" data-action="select-task" data-task="${t.id}" title="클릭 시 우측 주간보고 작성 폼으로 이동" style="${isCompleted ? "border-color:#2e7d32; color:#2e7d32; background:#e8f5e9;" : ""}">
+                                ${
+                                  !viewingCurrent && weekView.missing
+                                    ? "해당 주 없음"
+                                    : isCompleted
+                                      ? "✓ 작성완료"
+                                      : "미작성"
+                                }
+                              </button>
                               ${
-                                !viewingCurrent && weekView.missing
-                                  ? "해당 주 없음"
-                                  : isCompleted
-                                    ? "✓ 작성완료"
-                                    : "미작성"
+                                canManageTasks
+                                  ? `<button class="btn ghost small danger" data-action="delete-task" data-company="${company.id}" data-participant="${participant.id}" data-task="${t.id}" title="과제 삭제">삭제</button>`
+                                  : ""
                               }
-                            </button>
+                            </div>
                           </div>
                           <div class="task-progress-wrap">
                             ${renderProgress(Number(progressValue || 0), taskSched.cls)}
@@ -1101,8 +1108,9 @@
         <div class="field"><label>난이도</label>${difficultySelectHtml("task-difficulty", "중")}</div>
       </div>
       <div class="field"><label>성과 목표</label><textarea id="task-goal" placeholder="달성하려는 성과 목표"></textarea></div>
-      <div class="field"><label>As-Is 프로세스</label><textarea id="task-asis" placeholder="단계1 > 단계2 > 단계3 또는 줄바꿈으로 구분"></textarea></div>
-      <div class="field"><label>To-Be 프로세스</label><textarea id="task-tobe" placeholder="단계1 > 단계2 > 단계3 또는 줄바꿈으로 구분"></textarea></div>
+      <div class="field"><label>As-Is 프로세스</label><textarea id="task-asis" placeholder="예: 단계A [수작업｜문서｜120분] > 단계B [자동화｜툴｜60분]"></textarea></div>
+      <div class="field"><label>To-Be 프로세스</label><textarea id="task-tobe" placeholder="예: 단계A [수작업｜문서｜120분] > 단계B [자동화｜툴｜60분]"></textarea></div>
+      <p class="helper" style="margin-top:-6px">프로세스는 <strong>&gt;</strong> 로 단계를 구분합니다. 대괄호 안 ｜ 등은 한 단계(노드) 안에 그대로 표시됩니다.</p>
       <div class="field">
         <label>CSV 업로드 (선택)</label>
         <input id="task-csv" type="file" accept=".csv,text/csv" data-action="task-csv-change" />
@@ -1214,10 +1222,11 @@
         <div class="field"><label>난이도</label>${difficultySelectHtml("detail-task-difficulty", task.difficulty, !editable)}</div>
       </div>
       <div class="field"><label>성과 목표</label><textarea id="detail-task-goal" ${editable ? "" : "readonly class='readonly'"}>${escapeHtml(task.goal || "")}</textarea></div>
-      <div class="field"><label>As-Is 프로세스</label><textarea id="detail-task-asis" ${editable ? "" : "readonly class='readonly'"} placeholder="단계1 > 단계2">${escapeHtml(task.asIsProcess || "")}</textarea></div>
+      <div class="field"><label>As-Is 프로세스</label><textarea id="detail-task-asis" ${editable ? "" : "readonly class='readonly'"} placeholder="단계A [수작업｜문서｜120분] > 단계B">${escapeHtml(task.asIsProcess || "")}</textarea></div>
       ${renderProcessFlow("As-Is (가로 흐름)", task.asIsProcess)}
-      <div class="field"><label>To-Be 프로세스</label><textarea id="detail-task-tobe" ${editable ? "" : "readonly class='readonly'"} placeholder="단계1 > 단계2">${escapeHtml(task.toBeProcess || "")}</textarea></div>
+      <div class="field"><label>To-Be 프로세스</label><textarea id="detail-task-tobe" ${editable ? "" : "readonly class='readonly'"} placeholder="단계A [수작업｜문서｜120분] > 단계B">${escapeHtml(task.toBeProcess || "")}</textarea></div>
       ${renderProcessFlow("To-Be (가로 흐름)", task.toBeProcess)}
+      <p class="helper">흐름 차트는 <strong>&gt;</strong> 기준으로 노드를 나눕니다.</p>
     `,
       `
       <button class="btn ghost" data-action="close-modal">닫기</button>
@@ -1541,11 +1550,14 @@
     }
 
     if (action === "delete-task") {
-      if (!isAdmin()) return toast("관리자만 과제를 삭제할 수 있습니다.");
-      const company = state.companies.find((c) => c.id === el.dataset.company);
-      const participant = company?.participants?.find((p) => p.id === el.dataset.participant);
+      const company = state.companies.find((c) => c.id === el.dataset.company) || currentCompany();
+      const participant =
+        company?.participants?.find((p) => p.id === el.dataset.participant) || currentParticipant();
       const task = participant?.tasks?.find((t) => t.id === el.dataset.task);
       if (!company || !participant || !task) return toast("과제를 찾을 수 없습니다.");
+      if (!canManageParticipant(participant)) {
+        return toast("본인 과제만 삭제할 수 있습니다.");
+      }
       const okConfirm = window.confirm(
         `"${task.name}" 과제를 삭제할까요?\nDB에서도 삭제됩니다.`
       );

@@ -577,8 +577,16 @@ tr:hover td { background: #fafbff; }
   margin-right: 2px;
 }
 
-.task-row-head .btn {
+.task-row-head .task-row-actions {
   margin-left: auto;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-row-head .btn {
+  margin-left: 0;
 }
 
 .task-row.selected {
@@ -976,6 +984,7 @@ input[type="range"].range-gray { accent-color: var(--muted); }
   display: inline-flex;
   align-items: center;
   min-height: 34px;
+  max-width: min(100%, 420px);
   padding: 6px 12px;
   border-radius: var(--radius);
   background: var(--panel-soft);
@@ -983,6 +992,8 @@ input[type="range"].range-gray { accent-color: var(--muted); }
   font-size: 13px;
   font-weight: 700;
   color: var(--text);
+  white-space: normal;
+  line-height: 1.35;
 }
 
 .process-arrow {

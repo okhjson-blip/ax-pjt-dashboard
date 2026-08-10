@@ -328,8 +328,10 @@ function ensureCompanyFields(company) {
 }
 
 function parseProcessSteps(text) {
+  // 노드 구분: ">"(전각 ＞ 포함) 또는 줄바꿈. "|" / "｜"는 노드 내부 메타(도구·시간)로 유지.
   return String(text || "")
-    .split(/[\n>|]/)
+    .split(/\n+/)
+    .flatMap((line) => line.split(/\s*[>＞]\s*/))
     .map((s) => s.trim())
     .filter(Boolean);
 }

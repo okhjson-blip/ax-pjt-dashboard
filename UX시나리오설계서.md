@@ -5,7 +5,7 @@
 | 문서 버전 | 1.0 |
 | 기준 UI | `public/js/app.js` 최종 구현 |
 | 작성일 | 2026-08-10 |
-| 관련 문서 | [README.md](README.md), [개발계획서.md](개발계획서.md) |
+| 관련 문서 | [README.md](README.md), [개발계획서.md](개발계획서.md), [UI디자인설계서.md](UI디자인설계서.md) |
 
 ---
 
