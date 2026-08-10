@@ -214,6 +214,15 @@ textarea {
 }
 .btn.ghost:hover { background: var(--panel-soft); }
 .btn.danger { background: var(--red); }
+.btn.ghost.danger {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 45%, #ffffff);
+  background: #fff5f5;
+}
+.btn.ghost.danger:hover {
+  background: #ffe8e8;
+  border-color: var(--red);
+}
 .btn.small {
   min-height: 32px;
   padding: 7px 10px;
@@ -799,6 +808,13 @@ input[type="range"].range-gray { accent-color: var(--muted); }
   text-align: center;
   white-space: nowrap;
   font-size: 12px;
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 
 .side-company-label {

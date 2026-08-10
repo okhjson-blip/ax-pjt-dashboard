@@ -305,6 +305,7 @@ function ensureTaskFields(task) {
   task.asIsProcess ??= "";
   task.toBeProcess ??= "";
   task.difficulty = normalizeDifficulty(task.difficulty);
+  if (!Array.isArray(task.weeklyReports)) task.weeklyReports = [];
   task.reportCompleted ??= Boolean(
     String(task.weeklySummary || "").trim() || String(task.nextWeekPlan || "").trim()
   );

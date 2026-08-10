@@ -11,7 +11,10 @@
     selectedCompanyId: null,
     selectedParticipantId: null,
     selectedTaskId: null,
+    selectedWeek: null,
     filterStatus: "all",
+    filterCompanyId: "all",
+    filterParticipantId: "all",
     search: "",
     modal: null,
     form: {},
@@ -20,8 +23,105 @@
     lastLocalSaveAt: null
   };
 
-  function today() {
-    return new Date();
+  function currentWeekNumber(company = currentCompany()) {
+    return getConsultingWeek(company?.schedule?.startDate);
+  }
+
+  function selectedWeekNumber(company = currentCompany()) {
+    if (state.selectedWeek != null && state.selectedWeek !== "") {
+      return Number(state.selectedWeek);
+    }
+    return currentWeekNumber(company);
+  }
+
+  function isViewingCurrentWeek(company = currentCompany()) {
+    return selectedWeekNumber(company) === currentWeekNumber(company);
+  }
+
+  function getTaskWeekSnapshot(task, weekNumber) {
+    if (!task) return null;
+    ensureTaskFields(task);
+    return (task.weeklyReports || []).find((r) => Number(r.weekNumber) === Number(weekNumber)) || null;
+  }
+
+  function viewTaskReport(task, company = currentCompany()) {
+    const t = ensureTaskFields(task);
+    if (!t) {
+      return {
+        progress: 0,
+        weeklySummary: "",
+        nextWeekPlan: "",
+        instructorFeedback: "",
+        reportCompleted: false,
+        savedAt: null,
+        missing: true
+      };
+    }
+    const week = selectedWeekNumber(company);
+    if (isViewingCurrentWeek(company)) {
+      return {
+        progress: Number(t.progress || 0),
+        weeklySummary: t.weeklySummary || "",
+        nextWeekPlan: t.nextWeekPlan || "",
+        instructorFeedback: t.instructorFeedback || "",
+        reportCompleted: Boolean(t.reportCompleted),
+        savedAt: state.lastLocalSaveAt || state.meta?.lastSavedAt || null,
+        missing: false
+      };
+    }
+    const snap = getTaskWeekSnapshot(t, week);
+    if (!snap) {
+      return {
+        progress: 0,
+        weeklySummary: "",
+        nextWeekPlan: "",
+        instructorFeedback: "",
+        reportCompleted: false,
+        savedAt: null,
+        missing: true
+      };
+    }
+    return {
+      progress: Number(snap.progress || 0),
+      weeklySummary: snap.weeklySummary || "",
+      nextWeekPlan: snap.nextWeekPlan || "",
+      instructorFeedback: snap.instructorFeedback || "",
+      reportCompleted: Boolean(snap.reportCompleted),
+      savedAt: snap.savedAt || null,
+      missing: false
+    };
+  }
+
+  function upsertTaskWeekSnapshot(task, weekNumber, patch) {
+    ensureTaskFields(task);
+    const week = Number(weekNumber);
+    if (!week || week < 1) return;
+    const id = `twr-${task.id}-w${week}`;
+    const next = {
+      id,
+      weekNumber: week,
+      progress: Number(patch.progress || 0),
+      weeklySummary: patch.weeklySummary || "",
+      nextWeekPlan: patch.nextWeekPlan || "",
+      instructorFeedback: patch.instructorFeedback || "",
+      reportCompleted: Boolean(patch.reportCompleted),
+      savedAt: patch.savedAt || new Date().toISOString()
+    };
+    const idx = task.weeklyReports.findIndex((r) => Number(r.weekNumber) === week);
+    if (idx >= 0) task.weeklyReports[idx] = { ...task.weeklyReports[idx], ...next };
+    else task.weeklyReports.push(next);
+  }
+
+  function weekOptionsHtml(company) {
+    const current = currentWeekNumber(company);
+    const selected = selectedWeekNumber(company);
+    const maxWeek = Math.max(1, current);
+    let html = "";
+    for (let w = 1; w <= maxWeek; w += 1) {
+      const label = w === current ? `${w}주차 (이번 주)` : `${w}주차`;
+      html += `<option value="${w}" ${selected === w ? "selected" : ""}>${label}</option>`;
+    }
+    return html;
   }
 
   function elapsedTarget(company) {
@@ -98,7 +198,21 @@
   }
 
   function isMine(participant) {
-    return isAdmin() || participant?.id === state.auth?.participantId;
+    return Boolean(participant?.id && participant.id === state.auth?.participantId);
+  }
+
+  function canViewParticipant(participant) {
+    return isAdmin() || isMine(participant);
+  }
+
+  function canManageParticipant(participant) {
+    return isAdmin() || isMine(participant);
+  }
+
+  function lockToOwnParticipant() {
+    if (isAdmin() || !state.auth?.participantId) return;
+    if (state.auth.companyId) state.selectedCompanyId = state.auth.companyId;
+    state.selectedParticipantId = state.auth.participantId;
   }
 
   function allParticipants() {
@@ -139,6 +253,7 @@
       toast("관리자 권한이 필요한 화면입니다.");
       return;
     }
+    if (view === "personal") lockToOwnParticipant();
     state.view = view;
     render();
     maybeShowParticipantUpdatePopup();
@@ -344,7 +459,7 @@
         <button class="btn ghost" data-action="open-add-participant">참여자 등록</button>
       `;
     }
-    if (isAdmin()) {
+    if (isAdmin() && isViewingCurrentWeek()) {
       return `<button class="btn primary" data-action="save-feedback">피드백 저장</button>`;
     }
     return "";
@@ -352,16 +467,29 @@
 
   function renderAdminDashboard() {
     const participantRows = allParticipants();
-    const rows = allTaskRows();
+    const rows = allTaskRows().filter(({ task }) => Boolean(task));
+    const companyOptions = state.companies;
+    const participantOptions = participantRows.filter(
+      ({ company }) => state.filterCompanyId === "all" || company.id === state.filterCompanyId
+    );
+    if (
+      state.filterParticipantId !== "all" &&
+      !participantOptions.some(({ participant }) => participant.id === state.filterParticipantId)
+    ) {
+      state.filterParticipantId = "all";
+    }
     const filtered = rows.filter(({ company, participant, task }) => {
-      const text = `${participant.name} ${participant.email} ${participant.dept} ${task?.name || "과제 없음"}`.toLowerCase();
+      const text = `${company.name} ${participant.name} ${participant.email} ${participant.dept} ${task.name}`.toLowerCase();
       const bySearch = text.includes(state.search.toLowerCase());
       const sched = scheduleStatus(company, participant);
       const byStatus =
         state.filterStatus === "all" ||
         (state.filterStatus === "정체" && sched.reason === "stalled") ||
         (state.filterStatus === "정상" && (sched.reason === "ok" || sched.reason === "watch"));
-      return bySearch && byStatus;
+      const byCompany = state.filterCompanyId === "all" || company.id === state.filterCompanyId;
+      const byParticipant =
+        state.filterParticipantId === "all" || participant.id === state.filterParticipantId;
+      return bySearch && byStatus && byCompany && byParticipant;
     });
     const totalParticipants = participantRows.length;
     const avg = totalParticipants
@@ -391,6 +519,8 @@
           ${state.companies
             .map((company) => {
               const c = ensureCompanyFields(company);
+              const participantCount = (c.participants || []).length;
+              const taskCount = (c.participants || []).reduce((sum, p) => sum + (p.tasks || []).length, 0);
               return `
             <div class="schedule-box">
               <strong>${escapeHtml(c.name)}</strong>
@@ -402,12 +532,14 @@
               <div class="schedule-meta-group">
                 <div class="date-row pmo-row"><span>PMO</span><b>${c.pmo?.name ? escapeHtml(c.pmo.name) : '<span class="pmo-empty">미등록</span>'}</b></div>
                 <div class="date-row pmo-row"><span>PMO 메일</span><b>${c.pmo?.email ? escapeHtml(c.pmo.email) : "-"}</b></div>
-                <div class="date-row participant-count-row"><span>참여자수</span><b>${(c.participants || []).length}명</b></div>
+                <div class="date-row participant-count-row"><span>참여자수</span><b>${participantCount}명</b></div>
+                <div class="date-row participant-count-row"><span>과제수</span><b>${taskCount}건</b></div>
               </div>
               <div class="schedule-actions">
                 <button class="btn ghost small" data-action="open-schedule" data-company="${c.id}">일정/PMO 편집</button>
                 <button class="btn ghost small" data-action="request-participant-update" data-company="${c.id}">참여자 업데이트</button>
                 <button class="btn ghost small" data-action="open-add-notice" data-company="${c.id}">공지 등록</button>
+                <button class="btn ghost small danger" data-action="delete-company" data-company="${c.id}">협력사 삭제</button>
               </div>
             </div>
           `;
@@ -419,6 +551,24 @@
       <div class="toolbar">
         <div class="filters">
           <input id="search" placeholder="협력사, 참여자, 부서, 과제명 검색" value="${escapeHtml(state.search)}" data-action="search" />
+          <select id="company-filter" data-action="filter-company" title="협력사 필터">
+            <option value="all" ${state.filterCompanyId === "all" ? "selected" : ""}>전체 협력사</option>
+            ${companyOptions
+              .map(
+                (c) =>
+                  `<option value="${c.id}" ${state.filterCompanyId === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`
+              )
+              .join("")}
+          </select>
+          <select id="participant-filter" data-action="filter-participant" title="참여자 필터">
+            <option value="all" ${state.filterParticipantId === "all" ? "selected" : ""}>전체 참여자</option>
+            ${participantOptions
+              .map(
+                ({ participant }) =>
+                  `<option value="${participant.id}" ${state.filterParticipantId === participant.id ? "selected" : ""}>${escapeHtml(participant.name)}</option>`
+              )
+              .join("")}
+          </select>
           <select id="status-filter" data-action="filter-status">
             <option value="all" ${state.filterStatus === "all" ? "selected" : ""}>전체 일정 상태</option>
             <option value="정상" ${state.filterStatus === "정상" ? "selected" : ""}>양호·정상</option>
@@ -451,20 +601,23 @@
                       return `
               <tr>
                 <td>${escapeHtml(company.name)}</td>
-                <td>${task ? escapeHtml(task.name) : '<span class="helper">과제 없음</span>'}</td>
+                <td>${escapeHtml(task.name)}</td>
                 <td>${escapeHtml(participant.name)}<br /><span class="person-meta">${escapeHtml(participant.email)}</span></td>
                 <td>${escapeHtml(participant.dept)}</td>
-                <td>${task ? renderProgress(Number(task.progress || 0), sched.cls) : renderProgress(0, sched.cls)}</td>
+                <td>${renderProgress(Number(task.progress || 0), sched.cls)}</td>
                 <td><span class="badge ${sched.cls}">${sched.label}</span></td>
-                <td>${task?.instructorFeedback ? escapeHtml(task.instructorFeedback) : '<span class="helper">피드백 없음</span>'}</td>
+                <td>${task.instructorFeedback ? escapeHtml(task.instructorFeedback) : '<span class="helper">피드백 없음</span>'}</td>
                 <td>
-                  <button class="btn ghost small" data-action="view-person" data-company="${company.id}" data-participant="${participant.id}" data-task="${task?.id || ""}">상세</button>
+                  <div class="table-actions">
+                    <button class="btn ghost small" data-action="view-person" data-company="${company.id}" data-participant="${participant.id}" data-task="${task.id}">상세</button>
+                    <button class="btn ghost small danger" data-action="delete-task" data-company="${company.id}" data-participant="${participant.id}" data-task="${task.id}">과제 삭제</button>
+                  </div>
                 </td>
               </tr>
             `;
                     })
                     .join("")
-                : '<tr><td colspan="8"><div class="empty">조건에 맞는 참여자가 없습니다.</div></td></tr>'
+                : '<tr><td colspan="8"><div class="empty">조건에 맞는 과제가 없습니다.</div></td></tr>'
             }
           </tbody>
         </table>
@@ -596,6 +749,11 @@
                 ? taskRows
                     .map(({ company: c, participant, task }) => {
                       const sched = scheduleStatus(c, participant);
+                      const reportDone = Boolean(ensureTaskFields(task)?.reportCompleted);
+                      const reportLabel = reportDone ? "주간보고 작성완료" : "주간보고 미작성";
+                      const reportCls = reportDone ? "green" : "red";
+                      const feedbackDone = Boolean(task?.instructorFeedback?.trim());
+                      const canOpenDetail = canViewParticipant(participant);
                       return `
               <div class="task-progress-card ${participant.id === state.auth?.participantId ? "mine" : ""}">
                 <div class="person-row">
@@ -607,8 +765,12 @@
                 </div>
                 ${task ? renderProgress(Number(task.progress || 0), sched.cls) : renderProgress(0, sched.cls)}
                 <div class="person-row">
-                  <span class="helper">주간보고 ${ensureTaskFields(task)?.reportCompleted ? "작성완료" : "미작성"} · 강사 피드백 ${task?.instructorFeedback?.trim() ? "작성" : "미작성"}</span>
-                  <button class="btn ghost small" data-action="view-person" data-company="${c.id}" data-participant="${participant.id}" data-task="${task?.id || ""}">상세보기</button>
+                  <span class="helper"><span class="status-text ${reportCls}">${reportLabel}</span> · 강사 피드백 ${feedbackDone ? "작성" : "미작성"}</span>
+                  ${
+                    canOpenDetail
+                      ? `<button class="btn ghost small" data-action="view-person" data-company="${c.id}" data-participant="${participant.id}" data-task="${task?.id || ""}">상세보기</button>`
+                      : '<span class="helper">본인 과제만 상세 열람</span>'
+                  }
                 </div>
               </div>
             `;
@@ -659,6 +821,7 @@
   }
 
   function renderPersonalDashboard() {
+    lockToOwnParticipant();
     const company = currentCompany();
     if (!company) return '<div class="empty">선택된 협력사가 없습니다.</div>';
     if (!company.participants.length) {
@@ -668,13 +831,26 @@
       `;
     }
     if (!company.participants.some((p) => p.id === state.selectedParticipantId)) {
-      state.selectedParticipantId = company.participants[0].id;
+      if (isAdmin()) {
+        state.selectedParticipantId = company.participants[0].id;
+      } else {
+        lockToOwnParticipant();
+      }
     }
     const participant = currentParticipant();
     if (!participant) return '<div class="empty">선택된 참여자가 없습니다. 협력사 허브에서 참여자를 선택하세요.</div>';
+    if (!canViewParticipant(participant)) {
+      return '<div class="empty">본인 과제만 열람할 수 있습니다.</div>';
+    }
     const editable = isMine(participant);
+    const canManageTasks = canManageParticipant(participant);
+    const viewingCurrent = isViewingCurrentWeek(company);
+    const canEditReport = editable && viewingCurrent;
+    const canEditFeedback = isAdmin() && viewingCurrent;
+    const week = selectedWeekNumber(company);
     const schedule = scheduleStatus(company, participant);
     const task = currentTask();
+    const reportView = viewTaskReport(task, company);
     const taskOptions = participant.tasks
       .map((item) => `<option value="${item.id}" ${task?.id === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`)
       .join("");
@@ -691,6 +867,17 @@
                 <div class="person-meta">${escapeHtml(company.name)} · ${escapeHtml(participant.dept)} · ${escapeHtml(participant.email)}</div>
               </div>
               <span class="badge ${schedule.cls}">${schedule.label}</span>
+            </div>
+            <div class="field" style="margin-top:14px; margin-bottom:0">
+              <label for="report-week">조회 주차</label>
+              <select id="report-week" data-action="change-report-week">${weekOptionsHtml(company)}</select>
+              <p class="helper" style="margin-top:8px">
+                ${
+                  viewingCurrent
+                    ? "이번 주 보고를 작성·수정할 수 있습니다. 과거 주차는 저장된 스냅샷을 조회합니다."
+                    : `${week}주차는 읽기 전용입니다. 해당 주에 저장한 진척·보고만 표시됩니다.`
+                }
+              </p>
             </div>
             <div class="grid stats" style="grid-template-columns: repeat(3, 1fr); margin-top:16px">
               ${renderStat("전체 진척도", schedule.actual + "%")}
@@ -709,9 +896,17 @@
             <div class="section-title">
               <div>
                 <h3>과제 목록</h3>
-                <p>${editable ? "과제 상세·일정 상태를 확인하고, 진척도는 주간 보고에서 수정합니다." : "타 참여자의 과제는 읽기 전용입니다."}</p>
+                <p>${
+                  viewingCurrent
+                    ? editable
+                      ? "과제 상세·일정 상태를 확인하고, 진척도는 주간 보고에서 수정합니다."
+                      : isAdmin()
+                        ? "참여자 과제는 열람·피드백만 가능합니다. 주간 보고 본문은 참여자만 수정합니다."
+                        : "본인 과제만 수정·저장할 수 있습니다."
+                    : `${week}주차 기준 진척·작성 여부를 표시합니다.`
+                }</p>
               </div>
-              ${editable ? `<button class="btn ghost small" data-action="open-add-task" data-company="${company.id}" data-participant="${participant.id}">과제 추가</button>` : ""}
+              ${canManageTasks ? `<button class="btn ghost small" data-action="open-add-task" data-company="${company.id}" data-participant="${participant.id}">과제 추가</button>` : ""}
             </div>
             ${
               participant.tasks.length
@@ -719,9 +914,11 @@
                     .map((item) => {
                       const t = ensureTaskFields(item);
                       const isSelected = task?.id === t.id;
-                      const isCompleted = t.reportCompleted;
+                      const weekView = viewTaskReport(t, company);
+                      const isCompleted = weekView.reportCompleted;
                       const taskSched = taskScheduleStatus(t, company);
                       const expected = taskSched.expected;
+                      const progressValue = weekView.missing && !viewingCurrent ? 0 : weekView.progress;
                       return `
                         <div class="task-row ${isSelected ? "selected" : ""}" data-action="open-task-detail" data-task="${t.id}" style="cursor:pointer">
                           <div class="task-row-head">
@@ -729,11 +926,17 @@
                             <span class="badge gray">${escapeHtml(t.difficulty)}</span>
                             <span class="badge ${taskSched.cls} task-status-badge">${taskSched.label}</span>
                             <button class="btn small ${isCompleted ? "ghost" : "primary"}" data-action="select-task" data-task="${t.id}" title="클릭 시 우측 주간보고 작성 폼으로 이동" style="${isCompleted ? "border-color:#2e7d32; color:#2e7d32; background:#e8f5e9;" : ""}">
-                              ${isCompleted ? "✓ 작성완료" : "미작성"}
+                              ${
+                                !viewingCurrent && weekView.missing
+                                  ? "해당 주 없음"
+                                  : isCompleted
+                                    ? "✓ 작성완료"
+                                    : "미작성"
+                              }
                             </button>
                           </div>
                           <div class="task-progress-wrap">
-                            ${renderProgress(Number(t.progress || 0), taskSched.cls)}
+                            ${renderProgress(Number(progressValue || 0), taskSched.cls)}
                             <div class="progress-cell expected-progress">
                               <div class="progress"><div class="bar gray" style="width:${expected === null ? 0 : expected}%"></div></div>
                               <strong class="progress-value gray">${expected === null ? "기대-" : `기대 ${expected}%`}</strong>
@@ -752,18 +955,28 @@
           <div class="card card-pad">
             <div class="section-title">
               <div>
-                <h3>주간 보고</h3>
-                <p>과제를 선택한 뒤 과제별 금주 요약, 차주 계획, 강사 피드백을 관리합니다.</p>
+                <h3>주간 보고 · ${week}주차</h3>
+                <p>${
+                  viewingCurrent
+                    ? "과제를 선택한 뒤 과제별 금주 요약, 차주 계획, 컨설턴트 피드백을 관리합니다."
+                    : "선택한 주차에 저장된 스냅샷을 조회합니다."
+                }</p>
               </div>
               ${
-                editable && !isAdmin()
+                canEditReport
                   ? '<button class="btn primary small" data-action="save-personal">내 보고 저장</button>'
                   : ""
               }
             </div>
             ${
               participant.tasks.length
-                ? `
+                ? reportView.missing && !viewingCurrent
+                  ? `<div class="empty">${week}주차에 저장된 주간 보고가 없습니다.</div>
+              <div class="field">
+                <label for="report-task">과제 선택</label>
+                <select id="report-task" data-action="change-report-task">${taskOptions}</select>
+              </div>`
+                  : `
               <div class="field">
                 <label for="report-task">과제 선택</label>
                 <select id="report-task" data-action="change-report-task">${taskOptions}</select>
@@ -771,24 +984,24 @@
               <div class="field">
                 <label for="report-progress">진척도 (%)</label>
                 <div class="report-progress-row">
-                  <input id="report-progress" type="range" min="0" max="100" value="${Number(task?.progress || 0)}" class="range-${task ? taskScheduleClass(task, company) : "gray"}" ${editable ? "" : "disabled"} data-action="task-progress" data-participant="${participant.id}" data-task="${task?.id || ""}" />
-                  <strong id="report-progress-value" class="progress-value ${task ? taskScheduleClass(task, company) : "gray"}">${Number(task?.progress || 0)}%</strong>
+                  <input id="report-progress" type="range" min="0" max="100" value="${Number(reportView.progress || 0)}" class="range-${task ? taskScheduleClass(task, company) : "gray"}" ${canEditReport ? "" : "disabled"} data-action="task-progress" data-participant="${participant.id}" data-task="${task?.id || ""}" />
+                  <strong id="report-progress-value" class="progress-value ${task ? taskScheduleClass(task, company) : "gray"}">${Number(reportView.progress || 0)}%</strong>
                 </div>
               </div>
               <div class="field">
                 <label>금주 요약</label>
-                <textarea id="weekly-summary" ${editable ? "" : "readonly class='readonly'"}>${escapeHtml(task?.weeklySummary || "")}</textarea>
+                <textarea id="weekly-summary" ${canEditReport ? "" : "readonly class='readonly'"}>${escapeHtml(reportView.weeklySummary || "")}</textarea>
               </div>
               <div class="field">
                 <label>차주 계획</label>
-                <textarea id="task-next-plan" ${editable ? "" : "readonly class='readonly'"}>${escapeHtml(task?.nextWeekPlan || "")}</textarea>
+                <textarea id="task-next-plan" ${canEditReport ? "" : "readonly class='readonly'"}>${escapeHtml(reportView.nextWeekPlan || "")}</textarea>
               </div>
               <div class="field">
-                <label>강사 피드백</label>
-                <textarea id="task-feedback" ${isAdmin() ? "" : "readonly class='readonly'"}>${escapeHtml(task?.instructorFeedback || "")}</textarea>
+                <label>컨설턴트 피드백</label>
+                <textarea id="task-feedback" ${canEditFeedback ? "" : "readonly class='readonly'"}>${escapeHtml(reportView.instructorFeedback || "")}</textarea>
               </div>
-              ${task?.instructorFeedback ? "" : '<p class="helper">선택한 과제에 등록된 강사 피드백이 없습니다.</p>'}
-              <p class="helper">마지막 저장 시각: ${formatDateTime(state.lastLocalSaveAt || state.meta?.lastSavedAt)}</p>
+              ${reportView.instructorFeedback ? "" : '<p class="helper">선택한 과제에 등록된 컨설턴트 피드백이 없습니다.</p>'}
+              <p class="helper">${viewingCurrent ? "마지막 저장 시각" : "해당 주 저장 시각"}: ${formatDateTime(reportView.savedAt || state.lastLocalSaveAt || state.meta?.lastSavedAt)}</p>
             `
                 : '<div class="empty">등록된 과제가 없습니다. 과제를 추가한 뒤 과제별 주간 보고를 작성하세요.</div>'
             }
@@ -990,7 +1203,7 @@
     if (!task) {
       return modalShell("과제 상세", '<div class="empty">과제를 찾을 수 없습니다.</div>', `<button class="btn primary" data-action="close-modal">닫기</button>`);
     }
-    const editable = isMine(participant);
+    const editable = canManageParticipant(participant);
     return modalShell(
       "과제 상세",
       `
@@ -1296,11 +1509,51 @@
     }
     if (action === "open-schedule") openModal("schedule", { companyId: el.dataset.company });
     if (action === "open-add-task") {
+      const target = allParticipants().find((row) => row.participant.id === el.dataset.participant)?.participant;
+      if (!canManageParticipant(target)) {
+        return toast("본인 과제만 추가할 수 있습니다.");
+      }
       state.form.csvTasks = null;
       openModal("addTask", { companyId: el.dataset.company, participantId: el.dataset.participant });
     }
     if (action === "open-add-notice") {
       openModal("addNotice", { companyId: el.dataset.company || state.selectedCompanyId });
+    }
+
+    if (action === "delete-company") {
+      if (!isAdmin()) return toast("관리자만 협력사를 삭제할 수 있습니다.");
+      const company = state.companies.find((c) => c.id === el.dataset.company);
+      if (!company) return toast("협력사를 찾을 수 없습니다.");
+      const participantCount = (company.participants || []).length;
+      const taskCount = (company.participants || []).reduce((n, p) => n + (p.tasks || []).length, 0);
+      const okConfirm = window.confirm(
+        `"${company.name}" 협력사를 삭제할까요?\n참여자 ${participantCount}명, 과제 ${taskCount}건이 함께 삭제되며 DB에도 반영됩니다.`
+      );
+      if (!okConfirm) return;
+      state.companies = state.companies.filter((c) => c.id !== company.id);
+      if (state.selectedCompanyId === company.id) {
+        state.selectedCompanyId = state.companies[0]?.id || null;
+        state.selectedParticipantId = null;
+        state.selectedTaskId = null;
+      }
+      await persist(`"${company.name}" 협력사를 삭제했습니다.`);
+      render();
+    }
+
+    if (action === "delete-task") {
+      if (!isAdmin()) return toast("관리자만 과제를 삭제할 수 있습니다.");
+      const company = state.companies.find((c) => c.id === el.dataset.company);
+      const participant = company?.participants?.find((p) => p.id === el.dataset.participant);
+      const task = participant?.tasks?.find((t) => t.id === el.dataset.task);
+      if (!company || !participant || !task) return toast("과제를 찾을 수 없습니다.");
+      const okConfirm = window.confirm(
+        `"${task.name}" 과제를 삭제할까요?\nDB에서도 삭제됩니다.`
+      );
+      if (!okConfirm) return;
+      participant.tasks = (participant.tasks || []).filter((t) => t.id !== task.id);
+      if (state.selectedTaskId === task.id) state.selectedTaskId = null;
+      await persist(`"${task.name}" 과제를 삭제했습니다.`);
+      render();
     }
     if (action === "open-notice-detail") {
       openModal("noticeDetail", { noticeId: el.dataset.notice });
@@ -1323,17 +1576,28 @@
     }
 
     if (action === "view-person") {
+      const target = allParticipants().find((row) => row.participant.id === el.dataset.participant)?.participant;
+      if (!canViewParticipant(target)) {
+        window.alert("본인 과제만 개인 대시보드에서 열람할 수 있습니다.");
+        return;
+      }
       state.selectedCompanyId = el.dataset.company;
       state.selectedParticipantId = el.dataset.participant;
       if (el.dataset.task) state.selectedTaskId = el.dataset.task;
+      state.selectedWeek = null;
       state.view = "personal";
       render();
     }
 
     if (action === "select-person") {
+      if (!isAdmin()) {
+        window.alert("본인 과제만 개인 대시보드에서 열람할 수 있습니다.");
+        return;
+      }
       state.selectedCompanyId = el.dataset.company || state.selectedCompanyId;
       state.selectedParticipantId = el.dataset.participant;
       state.selectedTaskId = null;
+      state.selectedWeek = null;
       state.view = "personal";
       render();
     }
@@ -1410,26 +1674,63 @@
     }
 
     if (action === "save-personal") {
+      const company = currentCompany();
+      const participant = currentParticipant();
+      if (!isMine(participant)) {
+        window.alert("본인 주간 보고만 저장할 수 있습니다.");
+        return;
+      }
+      if (!isViewingCurrentWeek(company)) {
+        return toast("과거 주차는 조회만 가능합니다. 이번 주로 전환한 뒤 저장하세요.");
+      }
       const task = currentTask();
       if (!task) return toast("과제를 먼저 추가해 주세요.");
+      const weeklySummary = (document.getElementById("weekly-summary")?.value || "").trim();
+      const nextWeekPlan = (document.getElementById("task-next-plan")?.value || "").trim();
+      if (!weeklySummary || !nextWeekPlan) {
+        window.alert("금주 요약과 차주 계획을 모두 입력한 뒤 저장해 주세요.");
+        return;
+      }
       const progressInput = document.getElementById("report-progress");
       if (progressInput) {
         task.progress = Math.min(100, Math.max(0, Number(progressInput.value || 0)));
       }
-      task.weeklySummary = document.getElementById("weekly-summary")?.value || "";
-      task.nextWeekPlan = document.getElementById("task-next-plan")?.value || "";
+      task.weeklySummary = weeklySummary;
+      task.nextWeekPlan = nextWeekPlan;
       task.reportCompleted = true;
+      upsertTaskWeekSnapshot(task, currentWeekNumber(company), {
+        progress: task.progress,
+        weeklySummary: task.weeklySummary,
+        nextWeekPlan: task.nextWeekPlan,
+        instructorFeedback: task.instructorFeedback || "",
+        reportCompleted: true
+      });
       await persist("선택한 과제의 주간 보고를 저장했으며 '작성완료'로 업데이트되었습니다.");
       render();
     }
 
     if (action === "save-feedback") {
+      if (!isAdmin()) {
+        window.alert("관리자만 피드백을 저장할 수 있습니다.");
+        return;
+      }
+      const company = currentCompany();
+      if (!isViewingCurrentWeek(company)) {
+        return toast("과거 주차의 피드백은 수정할 수 없습니다.");
+      }
       const task = currentTask();
       if (!task) return toast("과제를 먼저 추가해 주세요.");
       task.weeklySummary = document.getElementById("weekly-summary")?.value || task.weeklySummary || "";
       task.nextWeekPlan = document.getElementById("task-next-plan")?.value || task.nextWeekPlan || "";
       task.instructorFeedback = document.getElementById("task-feedback")?.value || "";
-      await persist("선택한 과제의 강사 피드백을 저장했습니다.");
+      upsertTaskWeekSnapshot(task, currentWeekNumber(company), {
+        progress: task.progress,
+        weeklySummary: task.weeklySummary,
+        nextWeekPlan: task.nextWeekPlan,
+        instructorFeedback: task.instructorFeedback,
+        reportCompleted: Boolean(task.reportCompleted)
+      });
+      await persist("선택한 과제의 컨설턴트 피드백을 저장했습니다.");
       render();
     }
 
@@ -1493,6 +1794,9 @@
       const company = state.companies.find((c) => c.id === state.form.companyId) || currentCompany();
       const participant =
         company.participants.find((p) => p.id === state.form.participantId) || currentParticipant();
+      if (!canManageParticipant(participant)) {
+        return toast("본인 과제만 추가할 수 있습니다.");
+      }
       const csvTasks = state.form.csvTasks;
       const created = [];
 
@@ -1548,6 +1852,9 @@
 
     if (action === "save-task-detail") {
       const participant = currentParticipant();
+      if (!canManageParticipant(participant)) {
+        return toast("본인 과제만 수정할 수 있습니다.");
+      }
       const task = participant?.tasks.find((t) => t.id === state.form.taskId) || currentTask();
       if (!task) return toast("과제를 찾을 수 없습니다.");
       task.name = document.getElementById("detail-task-name")?.value.trim() || task.name;
@@ -1599,7 +1906,9 @@
 
     if (action === "task-progress") {
       const company = currentCompany();
+      if (!isViewingCurrentWeek(company)) return;
       const participant = currentParticipant();
+      if (!isMine(participant)) return;
       const task = participant.tasks.find((t) => t.id === el.dataset.task);
       if (!task) return;
       task.progress = Number(el.value);
@@ -1631,6 +1940,13 @@
 
       clearTimeout(progressSaveTimer);
       progressSaveTimer = setTimeout(async () => {
+        upsertTaskWeekSnapshot(task, currentWeekNumber(company), {
+          progress: task.progress,
+          weeklySummary: task.weeklySummary || "",
+          nextWeekPlan: task.nextWeekPlan || "",
+          instructorFeedback: task.instructorFeedback || "",
+          reportCompleted: Boolean(task.reportCompleted)
+        });
         await persist("진척도를 저장했습니다.");
       }, 400);
     }
@@ -1643,10 +1959,16 @@
 
     if (action === "select-company") {
       state.selectedCompanyId = el.value;
+      state.selectedWeek = null;
       const company = currentCompany();
       if (company?.participants[0]) state.selectedParticipantId = company.participants[0].id;
       render();
       maybeShowParticipantUpdatePopup();
+    }
+
+    if (action === "change-report-week") {
+      state.selectedWeek = Number(el.value);
+      render();
     }
 
     if (action === "change-report-task") {
@@ -1656,6 +1978,17 @@
 
     if (action === "filter-status") {
       state.filterStatus = el.value;
+      render();
+    }
+
+    if (action === "filter-company") {
+      state.filterCompanyId = el.value || "all";
+      state.filterParticipantId = "all";
+      render();
+    }
+
+    if (action === "filter-participant") {
+      state.filterParticipantId = el.value || "all";
       render();
     }
 

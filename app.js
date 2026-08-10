@@ -1,8 +1,10 @@
 /**
- * Express zero-config 대안 엔트리 (로컬 require / 일부 런타임용).
- * Vercel 배포의 주 엔트리는 api/index.js 입니다.
+ * Vercel Express 엔트리 + 로컬 require용.
+ * - Vercel: package.json의 express 의존성 + 이 파일의 express require로 프레임워크 감지
+ * - 로컬 장기 실행: `npm start` → backend/src/server.js (listen)
  */
 require("./backend/src/env");
+require("express");
 const { createApp } = require("./backend/src/app");
 
 module.exports = createApp();

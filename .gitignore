@@ -11,3 +11,4 @@ supabase/.branches/
 
 # Local UI mockup source (not pushed)
 ui mokup/
+.env*

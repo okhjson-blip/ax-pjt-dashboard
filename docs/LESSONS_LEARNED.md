@@ -101,22 +101,24 @@
 
 ## 2. Vercel / 배포
 
-### 2.1 `functions.app.js` 패턴 오류
+### 2.1 Express 엔트리 / `functions` 설정
 
 | | |
 |--|--|
-| **증상** | `pattern "app.js" doesn't match any Serverless Functions inside the api directory` |
-| **원인** | `vercel.json`의 `functions`는 전통적 `api/` 경로를 기대. Express zero-config 엔트리와 충돌 |
-| **해결** | `api/index.js`로 핸들러 export + `rewrites` → `/api`; `functions["api/index.js"]`만 설정 |
-| **방지** | Express+static이면 **처음부터 `api/` 엔트리 + rewrite**를 기본으로 둔다 |
+| **증상 (구)** | `pattern "app.js" doesn't match any Serverless Functions inside the api directory` |
+| **원인 (구)** | `framework: null` + `api/` 전제 builder에서 루트 `app.js`만 `functions`에 넣음 |
+| **현재 권장** | Vercel **Express 프레임워크** 감지: 루트 `app.js`가 `express`를 require하고 `module.exports = app`. `public/` 정적. `api/` 폴더·catch-all rewrite **불필요** |
+| **vercel.json** | CLI 58+ **services** 모델: `services.ax-pjt-dashboard` + top-level rewrite. 루트에 `functions`/`framework`를 두면 services와 충돌 |
+| **Node** | `package.json` `engines.node: "24.x"` (20.x deprecated) |
+| **방지** | 구형 `api/index.js` + catch-all rewrite와 신형 Express/services 엔트리를 **동시에** 두지 말 것 |
 
 ### 2.2 UI만 되고 API 404
 
 | | |
 |--|--|
 | **증상** | `/` 200, `/api/health` 404 NOT_FOUND. UI: “데이터를 불러오지 못했습니다 / 요청에 실패했습니다” |
-| **원인** | `framework: null` — 정적 `public/`만 배포되고 Express Function 미연결 |
-| **해결** | 위 2.1 + 재배포 |
+| **원인** | Express Function 미연결, 또는 삭제된 Vercel 프로젝트/깨진 `.vercel` 링크, 또는 구·신 엔트리 혼용 |
+| **해결** | 루트 `app.js` Express export 확인 → `npx vercel link --yes` → 재배포 → `/api/health` 검증 |
 | **방지** | 배포 후 **반드시** `/api/health`를 curl. UI만 보고 성공으로 치지 않는다 |
 
 ### 2.3 `express.static` / `frontend` 폴더
@@ -126,7 +128,7 @@
 | **증상** | Vercel에서 정적 자산 깨짐 |
 | **원인** | Vercel은 `express.static()` 무시, `public/**`만 CDN |
 | **해결** | UI를 `public/`에 둔다. 로컬은 Express static 유지 |
-| **방지** | 레포 구조를 `public/` + `api/` + `backend/`로 시작 |
+| **방지** | 레포 구조를 `public/` + 루트 Express `app.js` + `backend/`로 시작 |
 
 ### 2.4 호스팅 env 누락
 
@@ -175,11 +177,14 @@
 ### Vercel (Express + static)
 
 - [ ] UI는 `public/`
-- [ ] API 엔트리는 `api/index.js` (Express `createApp` export)
-- [ ] `vercel.json`: `rewrites` → `/api`, `functions["api/index.js"]` (루트 `app.js`를 functions에 넣지 말 것)
-- [ ] Vercel env에 URL/SECRET/ADMIN 등록 (Production + Preview)
-- [ ] 배포 후 `https://<app>/api/health` → supabase
-- [ ] 배포 후 데이터 API 200 (UI 새로고침까지)
+- [ ] 엔트리는 루트 `app.js` (`require("express")` + `module.exports = createApp()`)
+- [ ] `api/` catch-all rewrite **없음** (Express 프레임워크 네이티브)
+- [ ] `vercel.json`: `services` + Express `entrypoint: app.js` (루트 `functions`/`framework` 단독 금지)
+- [ ] `engines.node` = `24.x`
+- [ ] `.vercel` 링크가 유효한 프로젝트인지 (`vercel project ls` / `vercel link`)
+- [ ] 호스팅 env: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `ADMIN_PASSWORD` (Production + Preview) 후 **재배포**
+- [ ] 배포 후 `/api/health` → `db:supabase` AND `/api/dashboard` 200
+- [ ] Vercel에서 JSON 폴백 기대하지 않음 (Supabase 필수)
 
 ### 보안
 
@@ -196,7 +201,7 @@
 | `docs/DEPLOY.md` | 배포 절차 |
 | `docs/DATABASE.md` | 스키마·pooler·시드 |
 | `.env.example` | env 이름 표준 |
-| `api/index.js` + `vercel.json` | Vercel 연결 패턴 |
+| `app.js` + `vercel.json` | Vercel Express 엔트리 |
 | `backend/src/env.js` | 키 별칭 |
 | `scripts/remote-schema.sql` | SQL Editor 경로 |
 

@@ -19,7 +19,7 @@
     "db:migration:new": "supabase migration new"
   },
   "engines": {
-    "node": ">=18"
+    "node": "24.x"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

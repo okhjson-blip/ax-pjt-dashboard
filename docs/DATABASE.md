@@ -20,6 +20,7 @@
 companies (extras: pmo, notices, participantUpdateRequest)
   └── participants
         └── tasks (extras: startDate, endDate, goal, asIsProcess, toBeProcess, difficulty)
+              └── task_weekly_reports (week_number별 진척·주간보고 스냅샷)
 app_meta (key/value JSON — 대시보드 메타)
 ```
 
@@ -30,7 +31,7 @@ app_meta (key/value JSON — 대시보드 메타)
 
 - `20260806050925_init_dashboard_schema`
 - `20260806080226_company_pmo_notices_task_details` (`extras` 컬럼)
-
+- `20260810010000_task_weekly_reports` (과제×주차 스냅샷)
 ## 환경변수
 
 앱 런타임 (`backend/src/env.js`):

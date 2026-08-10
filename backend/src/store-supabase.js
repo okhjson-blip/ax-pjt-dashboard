@@ -62,7 +62,20 @@ function mapParticipantRow(row, tasks = []) {
   };
 }
 
-function mapTaskRow(row) {
+function mapWeeklyReportRow(row) {
+  return {
+    id: row.id,
+    weekNumber: Number(row.week_number || 1),
+    progress: Number(row.progress || 0),
+    weeklySummary: row.weekly_summary || "",
+    nextWeekPlan: row.next_week_plan || "",
+    instructorFeedback: row.instructor_feedback || "",
+    reportCompleted: Boolean(row.report_completed),
+    savedAt: row.saved_at || null
+  };
+}
+
+function mapTaskRow(row, weeklyReports = []) {
   const extras = row.extras && typeof row.extras === "object" ? row.extras : {};
   return {
     id: row.id,
@@ -77,173 +90,224 @@ function mapTaskRow(row) {
     goal: extras.goal || row.goal || "",
     asIsProcess: extras.asIsProcess || row.as_is_process || "",
     toBeProcess: extras.toBeProcess || row.to_be_process || "",
-    difficulty: extras.difficulty || "중"
+    difficulty: extras.difficulty || "중",
+    weeklyReports
   };
+}
+
+function weeklyReportId(taskId, weekNumber) {
+  return `twr-${taskId}-w${weekNumber}`;
 }
 
 async function readData() {
   return withSupabaseRetry(async () => {
-  const sb = getSupabaseAdmin();
+    const sb = getSupabaseAdmin();
 
-  const [{ data: companies, error: cErr }, { data: participants, error: pErr }, { data: tasks, error: tErr }, { data: metaRows, error: mErr }] =
-    await Promise.all([
+    const [
+      { data: companies, error: cErr },
+      { data: participants, error: pErr },
+      { data: tasks, error: tErr },
+      { data: weeklyRows, error: wErr },
+      { data: metaRows, error: mErr }
+    ] = await Promise.all([
       sb.from("companies").select("*").order("created_at", { ascending: true }),
       sb.from("participants").select("*").order("created_at", { ascending: true }),
       sb.from("tasks").select("*").order("created_at", { ascending: true }),
+      sb.from("task_weekly_reports").select("*").order("week_number", { ascending: true }),
       sb.from("app_meta").select("*").eq("key", "dashboard").maybeSingle()
     ]);
 
-  if (cErr) throw cErr;
-  if (pErr) throw pErr;
-  if (tErr) throw tErr;
-  if (mErr) throw mErr;
+    if (cErr) throw cErr;
+    if (pErr) throw pErr;
+    if (tErr) throw tErr;
+    if (wErr) throw wErr;
+    if (mErr) throw mErr;
 
-  const tasksByParticipant = new Map();
-  for (const task of tasks || []) {
-    const list = tasksByParticipant.get(task.participant_id) || [];
-    list.push(mapTaskRow(task));
-    tasksByParticipant.set(task.participant_id, list);
-  }
-
-  const participantsByCompany = new Map();
-  for (const participant of participants || []) {
-    const list = participantsByCompany.get(participant.company_id) || [];
-    list.push(mapParticipantRow(participant, tasksByParticipant.get(participant.id) || []));
-    participantsByCompany.set(participant.company_id, list);
-  }
-
-  const metaValue = metaRows?.value || {};
-  return {
-    companies: (companies || []).map((row) => mapCompanyRow(row, participantsByCompany.get(row.id) || [])),
-    meta: {
-      lastSavedAt: metaValue.lastSavedAt || null,
-      lastReportRequestAt: metaValue.lastReportRequestAt || null,
-      lastParticipantSyncAt: metaValue.lastParticipantSyncAt || null
+    const reportsByTask = new Map();
+    for (const row of weeklyRows || []) {
+      const list = reportsByTask.get(row.task_id) || [];
+      list.push(mapWeeklyReportRow(row));
+      reportsByTask.set(row.task_id, list);
     }
-  };
+
+    const tasksByParticipant = new Map();
+    for (const task of tasks || []) {
+      const list = tasksByParticipant.get(task.participant_id) || [];
+      list.push(mapTaskRow(task, reportsByTask.get(task.id) || []));
+      tasksByParticipant.set(task.participant_id, list);
+    }
+
+    const participantsByCompany = new Map();
+    for (const participant of participants || []) {
+      const list = participantsByCompany.get(participant.company_id) || [];
+      list.push(mapParticipantRow(participant, tasksByParticipant.get(participant.id) || []));
+      participantsByCompany.set(participant.company_id, list);
+    }
+
+    const metaValue = metaRows?.value || {};
+    return {
+      companies: (companies || []).map((row) => mapCompanyRow(row, participantsByCompany.get(row.id) || [])),
+      meta: {
+        lastSavedAt: metaValue.lastSavedAt || null,
+        lastReportRequestAt: metaValue.lastReportRequestAt || null,
+        lastParticipantSyncAt: metaValue.lastParticipantSyncAt || null
+      }
+    };
   });
 }
 
 async function writeData(data) {
   return withSupabaseRetry(async () => {
-  const sb = getSupabaseAdmin();
-  const companies = data.companies || [];
-  const nowIso = new Date().toISOString();
+    const sb = getSupabaseAdmin();
+    const companies = data.companies || [];
+    const nowIso = new Date().toISOString();
 
-  const companyIds = companies.map((c) => c.id);
-  const participantRows = [];
-  const taskRows = [];
+    const companyIds = companies.map((c) => c.id);
+    const participantRows = [];
+    const taskRows = [];
+    const weeklyReportRows = [];
 
-  for (const company of companies) {
-    for (const participant of company.participants || []) {
-      participantRows.push({
-        id: participant.id,
-        company_id: company.id,
-        name: participant.name,
-        email: participant.email,
-        dept: participant.dept || "",
-        status: participant.status || "정상",
-        summary: participant.summary || "",
-        next_week_plan: participant.nextWeekPlan || "",
-        instructor_memo: participant.instructorMemo || "",
-        registered_at: participant.registeredAt || null
-      });
-      for (const task of participant.tasks || []) {
-        taskRows.push({
-          id: task.id,
-          participant_id: participant.id,
-          name: task.name,
-          progress: Number(task.progress || 0),
-          weekly_summary: task.weeklySummary || "",
-          next_week_plan: task.nextWeekPlan || "",
-          instructor_feedback: task.instructorFeedback || "",
-          report_completed: Boolean(task.reportCompleted),
-          extras: {
-            startDate: task.startDate || "",
-            endDate: task.endDate || "",
-            goal: task.goal || "",
-            asIsProcess: task.asIsProcess || "",
-            toBeProcess: task.toBeProcess || "",
-            difficulty: task.difficulty || "중"
-          }
+    for (const company of companies) {
+      for (const participant of company.participants || []) {
+        participantRows.push({
+          id: participant.id,
+          company_id: company.id,
+          name: participant.name,
+          email: participant.email,
+          dept: participant.dept || "",
+          status: participant.status || "정상",
+          summary: participant.summary || "",
+          next_week_plan: participant.nextWeekPlan || "",
+          instructor_memo: participant.instructorMemo || "",
+          registered_at: participant.registeredAt || null
         });
+        for (const task of participant.tasks || []) {
+          taskRows.push({
+            id: task.id,
+            participant_id: participant.id,
+            name: task.name,
+            progress: Number(task.progress || 0),
+            weekly_summary: task.weeklySummary || "",
+            next_week_plan: task.nextWeekPlan || "",
+            instructor_feedback: task.instructorFeedback || "",
+            report_completed: Boolean(task.reportCompleted),
+            extras: {
+              startDate: task.startDate || "",
+              endDate: task.endDate || "",
+              goal: task.goal || "",
+              asIsProcess: task.asIsProcess || "",
+              toBeProcess: task.toBeProcess || "",
+              difficulty: task.difficulty || "중"
+            }
+          });
+          for (const report of task.weeklyReports || []) {
+            const weekNumber = Number(report.weekNumber || 0);
+            if (!weekNumber || weekNumber < 1) continue;
+            weeklyReportRows.push({
+              id: report.id || weeklyReportId(task.id, weekNumber),
+              task_id: task.id,
+              week_number: weekNumber,
+              progress: Number(report.progress || 0),
+              weekly_summary: report.weeklySummary || "",
+              next_week_plan: report.nextWeekPlan || "",
+              instructor_feedback: report.instructorFeedback || "",
+              report_completed: Boolean(report.reportCompleted),
+              saved_at: report.savedAt || nowIso,
+              updated_at: nowIso
+            });
+          }
+        }
       }
     }
-  }
 
-  const companyRows = companies.map((company) => ({
-    id: company.id,
-    name: company.name,
-    start_date: company.schedule?.startDate || null,
-    kickoff_date: company.schedule?.kickoffDate || null,
-    end_date: company.schedule?.endDate || null,
-    extras: {
-      pmo: company.pmo || { name: "", email: "" },
-      notices: company.notices || [],
-      participantUpdateRequest: company.participantUpdateRequest || {
-        pending: false,
-        message: "",
-        requestedAt: null,
-        acknowledgedAt: null
+    const companyRows = companies.map((company) => ({
+      id: company.id,
+      name: company.name,
+      start_date: company.schedule?.startDate || null,
+      kickoff_date: company.schedule?.kickoffDate || null,
+      end_date: company.schedule?.endDate || null,
+      extras: {
+        pmo: company.pmo || { name: "", email: "" },
+        notices: company.notices || [],
+        participantUpdateRequest: company.participantUpdateRequest || {
+          pending: false,
+          message: "",
+          requestedAt: null,
+          acknowledgedAt: null
+        }
       }
+    }));
+
+    const participantIds = participantRows.map((p) => p.id);
+    const taskIds = taskRows.map((t) => t.id);
+    const weeklyReportIds = weeklyReportRows.map((r) => r.id);
+
+    // 삭제된 레코드 정리 (전체 문서 덮어쓰기 모델)
+    const { data: existingCompanies, error: ecErr } = await sb.from("companies").select("id");
+    if (ecErr) throw ecErr;
+    const deleteCompanyIds = (existingCompanies || []).map((r) => r.id).filter((id) => !companyIds.includes(id));
+    if (deleteCompanyIds.length) {
+      const { error } = await sb.from("companies").delete().in("id", deleteCompanyIds);
+      if (error) throw error;
     }
-  }));
 
-  const participantIds = participantRows.map((p) => p.id);
-  const taskIds = taskRows.map((t) => t.id);
+    const { data: existingParticipants, error: epErr } = await sb.from("participants").select("id");
+    if (epErr) throw epErr;
+    const deleteParticipantIds = (existingParticipants || [])
+      .map((r) => r.id)
+      .filter((id) => !participantIds.includes(id));
+    if (deleteParticipantIds.length) {
+      const { error } = await sb.from("participants").delete().in("id", deleteParticipantIds);
+      if (error) throw error;
+    }
 
-  // 삭제된 레코드 정리 (전체 문서 덮어쓰기 모델)
-  const { data: existingCompanies, error: ecErr } = await sb.from("companies").select("id");
-  if (ecErr) throw ecErr;
-  const deleteCompanyIds = (existingCompanies || []).map((r) => r.id).filter((id) => !companyIds.includes(id));
-  if (deleteCompanyIds.length) {
-    const { error } = await sb.from("companies").delete().in("id", deleteCompanyIds);
-    if (error) throw error;
-  }
+    const { data: existingTasks, error: etErr } = await sb.from("tasks").select("id");
+    if (etErr) throw etErr;
+    const deleteTaskIds = (existingTasks || []).map((r) => r.id).filter((id) => !taskIds.includes(id));
+    if (deleteTaskIds.length) {
+      const { error } = await sb.from("tasks").delete().in("id", deleteTaskIds);
+      if (error) throw error;
+    }
 
-  const { data: existingParticipants, error: epErr } = await sb.from("participants").select("id");
-  if (epErr) throw epErr;
-  const deleteParticipantIds = (existingParticipants || [])
-    .map((r) => r.id)
-    .filter((id) => !participantIds.includes(id));
-  if (deleteParticipantIds.length) {
-    const { error } = await sb.from("participants").delete().in("id", deleteParticipantIds);
-    if (error) throw error;
-  }
+    const { data: existingReports, error: erErr } = await sb.from("task_weekly_reports").select("id");
+    if (erErr) throw erErr;
+    const deleteReportIds = (existingReports || []).map((r) => r.id).filter((id) => !weeklyReportIds.includes(id));
+    if (deleteReportIds.length) {
+      const { error } = await sb.from("task_weekly_reports").delete().in("id", deleteReportIds);
+      if (error) throw error;
+    }
 
-  const { data: existingTasks, error: etErr } = await sb.from("tasks").select("id");
-  if (etErr) throw etErr;
-  const deleteTaskIds = (existingTasks || []).map((r) => r.id).filter((id) => !taskIds.includes(id));
-  if (deleteTaskIds.length) {
-    const { error } = await sb.from("tasks").delete().in("id", deleteTaskIds);
-    if (error) throw error;
-  }
+    if (companyRows.length) {
+      const { error } = await sb.from("companies").upsert(companyRows, { onConflict: "id" });
+      if (error) throw error;
+    }
+    if (participantRows.length) {
+      const { error } = await sb.from("participants").upsert(participantRows, { onConflict: "id" });
+      if (error) throw error;
+    }
+    if (taskRows.length) {
+      const { error } = await sb.from("tasks").upsert(taskRows, { onConflict: "id" });
+      if (error) throw error;
+    }
+    if (weeklyReportRows.length) {
+      const { error } = await sb.from("task_weekly_reports").upsert(weeklyReportRows, {
+        onConflict: "task_id,week_number"
+      });
+      if (error) throw error;
+    }
 
-  if (companyRows.length) {
-    const { error } = await sb.from("companies").upsert(companyRows, { onConflict: "id" });
-    if (error) throw error;
-  }
-  if (participantRows.length) {
-    const { error } = await sb.from("participants").upsert(participantRows, { onConflict: "id" });
-    if (error) throw error;
-  }
-  if (taskRows.length) {
-    const { error } = await sb.from("tasks").upsert(taskRows, { onConflict: "id" });
-    if (error) throw error;
-  }
+    const meta = {
+      ...(data.meta || {}),
+      lastSavedAt: nowIso
+    };
 
-  const meta = {
-    ...(data.meta || {}),
-    lastSavedAt: nowIso
-  };
+    const { error: metaErr } = await sb.from("app_meta").upsert(
+      { key: "dashboard", value: meta, updated_at: nowIso },
+      { onConflict: "key" }
+    );
+    if (metaErr) throw metaErr;
 
-  const { error: metaErr } = await sb.from("app_meta").upsert(
-    { key: "dashboard", value: meta, updated_at: nowIso },
-    { onConflict: "key" }
-  );
-  if (metaErr) throw metaErr;
-
-  return { companies, meta };
+    return { companies, meta };
   });
 }
 
@@ -256,5 +320,6 @@ module.exports = {
   readData,
   writeData,
   resetData,
-  uid
+  uid,
+  weeklyReportId
 };
