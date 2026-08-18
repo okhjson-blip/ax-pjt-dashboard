@@ -459,8 +459,13 @@
         <button class="btn ghost" data-action="open-add-participant">참여자 등록</button>
       `;
     }
-    if (isAdmin() && isViewingCurrentWeek()) {
-      return `<button class="btn primary" data-action="save-feedback">피드백 저장</button>`;
+    if (state.view === "personal") {
+      const hint =
+        '<p class="timeout-hint">타임아웃 시간 제한 30초로 잠시 입력을 쉴 때는 반드시 저장하여 주시기 바랍니다</p>';
+      if (isAdmin() && isViewingCurrentWeek()) {
+        return `${hint}<button class="btn primary" data-action="save-feedback">피드백 저장</button>`;
+      }
+      return hint;
     }
     return "";
   }
@@ -1771,38 +1776,45 @@
 
     if (action === "add-company") {
       event.preventDefault();
-      const input = document.getElementById("company-name");
-      const name = input?.value.trim() || "";
-      if (!name) return toast("협력사명을 입력해 주세요.");
-      const now = today();
-      const todayIso = now.toISOString().slice(0, 10);
-      const end = new Date(now);
-      end.setDate(end.getDate() + 58);
-      const kickoff = new Date(now);
-      kickoff.setDate(kickoff.getDate() + 2);
-      const company = {
-        id: uid("c"),
-        name,
-        schedule: {
-          startDate: todayIso,
-          kickoffDate: kickoff.toISOString().slice(0, 10),
-          endDate: end.toISOString().slice(0, 10)
-        },
-        pmo: { name: "", email: "" },
-        notices: [],
-        participantUpdateRequest: {
-          pending: false,
-          message: "",
-          requestedAt: null,
-          acknowledgedAt: null
-        },
-        participants: []
-      };
-      state.companies.push(company);
-      state.selectedCompanyId = company.id;
-      const ok = await persist("협력사를 추가했습니다.");
-      if (ok) closeModal();
-      else render();
+      try {
+        const input = document.getElementById("company-name");
+        const name = input?.value.trim() || "";
+        if (!name) return toast("협력사명을 입력해 주세요.");
+        const now = typeof today === "function" ? today() : new Date();
+        const todayIso = now.toISOString().slice(0, 10);
+        const end = new Date(now);
+        end.setDate(end.getDate() + 58);
+        const kickoff = new Date(now);
+        kickoff.setDate(kickoff.getDate() + 2);
+        const company = {
+          id: uid("c"),
+          name,
+          schedule: {
+            startDate: todayIso,
+            kickoffDate: kickoff.toISOString().slice(0, 10),
+            endDate: end.toISOString().slice(0, 10)
+          },
+          pmo: { name: "", email: "" },
+          notices: [],
+          participantUpdateRequest: {
+            pending: false,
+            message: "",
+            requestedAt: null,
+            acknowledgedAt: null
+          },
+          participants: []
+        };
+        state.companies.push(company);
+        state.selectedCompanyId = company.id;
+        const ok = await persist("협력사를 추가했습니다.");
+        if (ok) closeModal();
+        else {
+          state.companies = state.companies.filter((c) => c.id !== company.id);
+          render();
+        }
+      } catch (err) {
+        toast(err.message || "협력사 추가에 실패했습니다.");
+      }
     }
 
     if (action === "add-participant") {

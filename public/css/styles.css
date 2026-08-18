@@ -357,7 +357,17 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
+}
+
+.timeout-hint {
+  margin: 0;
+  max-width: 280px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--amber);
+  text-align: right;
 }
 
 .content {
@@ -1111,7 +1121,10 @@ input[type="range"].range-gray { accent-color: var(--muted); }
 
   .filters input,
   .filters select,
-  .top-actions .btn {
+  .top-actions .btn,
+  .timeout-hint {
     width: 100%;
+    max-width: none;
+    text-align: left;
   }
 }

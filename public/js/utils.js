@@ -2,6 +2,10 @@ function uid(prefix) {
   return prefix + Math.random().toString(36).slice(2, 8);
 }
 
+function today() {
+  return new Date();
+}
+
 const DIFFICULTY_WEIGHT = { 상: 3, 중: 2, 하: 1 };
 
 function normalizeDifficulty(value) {

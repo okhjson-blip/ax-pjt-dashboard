@@ -242,17 +242,28 @@ async function writeData(data) {
     const taskIds = taskRows.map((t) => t.id);
     const weeklyReportIds = weeklyReportRows.map((r) => r.id);
 
-    // 삭제된 레코드 정리 (전체 문서 덮어쓰기 모델)
-    const { data: existingCompanies, error: ecErr } = await sb.from("companies").select("id");
+    const [
+      { data: existingCompanies, error: ecErr },
+      { data: existingParticipants, error: epErr },
+      { data: existingTasks, error: etErr },
+      { data: existingReports, error: erErr }
+    ] = await Promise.all([
+      sb.from("companies").select("id"),
+      sb.from("participants").select("id"),
+      sb.from("tasks").select("id"),
+      sb.from("task_weekly_reports").select("id")
+    ]);
     if (ecErr) throw ecErr;
+    if (epErr) throw epErr;
+    if (etErr) throw etErr;
+    if (erErr) throw erErr;
+
     const deleteCompanyIds = (existingCompanies || []).map((r) => r.id).filter((id) => !companyIds.includes(id));
     if (deleteCompanyIds.length) {
       const { error } = await sb.from("companies").delete().in("id", deleteCompanyIds);
       if (error) throw error;
     }
 
-    const { data: existingParticipants, error: epErr } = await sb.from("participants").select("id");
-    if (epErr) throw epErr;
     const deleteParticipantIds = (existingParticipants || [])
       .map((r) => r.id)
       .filter((id) => !participantIds.includes(id));
@@ -261,16 +272,12 @@ async function writeData(data) {
       if (error) throw error;
     }
 
-    const { data: existingTasks, error: etErr } = await sb.from("tasks").select("id");
-    if (etErr) throw etErr;
     const deleteTaskIds = (existingTasks || []).map((r) => r.id).filter((id) => !taskIds.includes(id));
     if (deleteTaskIds.length) {
       const { error } = await sb.from("tasks").delete().in("id", deleteTaskIds);
       if (error) throw error;
     }
 
-    const { data: existingReports, error: erErr } = await sb.from("task_weekly_reports").select("id");
-    if (erErr) throw erErr;
     const deleteReportIds = (existingReports || []).map((r) => r.id).filter((id) => !weeklyReportIds.includes(id));
     if (deleteReportIds.length) {
       const { error } = await sb.from("task_weekly_reports").delete().in("id", deleteReportIds);

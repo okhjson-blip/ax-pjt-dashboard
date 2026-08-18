@@ -119,21 +119,35 @@ SUPABASE_PUBLISHABLE_KEY=...     # 또는 SUPABASE_ANON_KEY (선택)
 
 ### 옵션 A — Vercel (권장)
 
-준비된 파일: 루트 `app.js`(Express default export), `public/`, `vercel.json`.
+준비된 파일: `api/index.js`(Serverless Function), `public/`(CDN 정적), `vercel.json`.
 
-Vercel은 `express` 의존성 + 루트 `app.js`를 **Express 프레임워크**로 감지합니다.  
-정적 UI는 `public/**` CDN, API는 같은 Express 앱의 `/api/*` 라우트입니다.  
-(구형 `api/index.js` + catch-all rewrite 패턴은 사용하지 않습니다.)
+루트 `app.js`에서 `express`를 import하지 않습니다. CLI가 Express **services** 빌더로 잡으면  
+`.vercel/output/functions`·`static`이 비어 **WARNING! Build output contains no "functions" or "static" directory** 가 납니다.
+
+```json
+{
+  "regions": ["sin1"],
+  "framework": null,
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 300,
+      "memory": 1024,
+      "includeFiles": "{backend/**,public/**}"
+    }
+  }
+}
+```
+
+- 정적 UI: `public/**` → CDN (`/css`, `/js`)
+- API: `api/index.js` → `/api/*` (rewrite 불필요)
+- Function 제한: `maxDuration` 300초 (Pro 플랜 상한). Hobby는 플랜 최댓값으로 캡됩니다.
 
 1. [Vercel](https://vercel.com)에서 Git 저장소 Import, 또는 CLI:
    ```bash
-   npx vercel link --yes     # 프로젝트 신규/연결 (기존 .vercel이 삭제됐다면 필수)
-   npx vercel env pull       # (선택) 원격 env 확인
-   npx vercel          # preview
-   npx vercel --prod   # production
+   npx vercel link --yes
+   npx vercel --prod
    ```
-2. Project → **Settings → Environment Variables**에 위 Supabase/ADMIN 값 등록 (Production + Preview 권장)
-   - 필수: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`(또는 `SUPABASE_SERVICE_ROLE_KEY`), `ADMIN_PASSWORD`
+2. Project → **Settings → Environment Variables**에 위 Supabase/ADMIN 값 등록 (Production + Preview)
 3. 배포 후 `https://<project>.vercel.app/api/health`  
    → `{ "ok": true, "db": "supabase", "runtime": "vercel" }`
 4. `GET /api/dashboard` 200 및 관리자 로그인·저장 후 새로고침으로 유지 확인
@@ -141,31 +155,6 @@ Vercel은 `express` 의존성 + 루트 `app.js`를 **Express 프레임워크**�
 로컬에서 Vercel 런타임 흉내: `npx vercel dev` (CLI ≥ 47.0.5)
 
 리전: `vercel.json`의 `sin1`(싱가포르) — Supabase `ap-southeast-1`과 맞춤.
-
-현재 CLI(≥58)는 Express를 **services**로 감지합니다. `vercel.json` 예:
-
-```json
-{
-  "regions": ["sin1"],
-  "services": {
-    "ax-pjt-dashboard": {
-      "root": ".",
-      "framework": "express",
-      "entrypoint": "app.js",
-      "functions": {
-        "app.js": {
-          "maxDuration": 30,
-          "memory": 1024,
-          "includeFiles": "backend/**"
-        }
-      }
-    }
-  },
-  "rewrites": [
-    { "source": "/(.*)", "destination": { "type": "service", "service": "ax-pjt-dashboard" } }
-  ]
-}
-```
 
 `engines.node`는 `24.x`를 사용합니다(20.x는 2026-10 이후 빌드 거부).  
 호스팅 env 등록 후 **반드시 재배포**해야 Function에 반영됩니다.
@@ -212,7 +201,8 @@ docker run --rm -p 3080:3080 --env-file .env -e HOST=0.0.0.0 ax-pjt-dashboard
 | `db.*.supabase.co` DNS/연결 실패 | IPv6/네트워크 제한 → **Transaction pooler** (`:6543`) `DATABASE_URL` 사용 |
 | 마이그레이션 실패 | link 권한 또는 `--db-url` 사용 |
 | Vercel 정적 404 | UI는 `public/`에 있어야 함 (`express.static`은 Vercel에서 무시) |
-| `/api` 404 on Vercel | 루트 `app.js` Express export·`vercel link`·재배포 확인. 구형 `api/`+rewrite와 혼용 금지 |
+| `/api` 404 on Vercel | `api/index.js` Function 존재·`framework: null`·재배포 확인 |
+| Build output no functions/static | Express services 빌더 사용 중 — `api/index.js` + `public/` + `framework: null` 로 전환 |
 | `.vercel` project_not_found | 프로젝트가 삭제됨 → `npx vercel link --yes` 후 env 재등록·배포 |
 | Render sleep | Free 플랜 유휴 슬립 → 첫 요청 지연 |
 

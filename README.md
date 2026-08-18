@@ -55,7 +55,8 @@ Windows에서는 `start.bat`을 더블클릭해도 됩니다.
 ## 구조
 
 ```
-app.js                    # Vercel Express 엔트리 (express import + createApp export)
+api/index.js              # Vercel Serverless Function (`/api/*`)
+app.js                    # 로컬 require용 (express 직접 import 없음)
 public/                   # 웹 UI (Vercel CDN + 로컬 static)
   js/app.js               # 화면·권한·주간보고 UX
   js/utils.js             # 주차·일정·진척 계산
@@ -67,10 +68,11 @@ backend/data/             # JSON 폴백 (로컬 전용, Vercel 불가)
 supabase/migrations/      # 스키마 마이그레이션 (task_weekly_reports 포함)
 supabase/seed.sql
 scripts/remote-schema.sql # SQL Editor 일괄 스키마
-vercel.json               # Express framework + sin1 + includeFiles
+vercel.json               # api/index.js Function + public static + maxDuration 300
 docs/                     # DEPLOY / DATABASE / LESSONS_LEARNED
 개발계획서.md
 UX시나리오설계서.md
+UI디자인설계서.md
 ui mokup/                 # 원본 목업 (참조, gitignore 가능)
 ```
 
