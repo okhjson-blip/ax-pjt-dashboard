@@ -299,21 +299,41 @@ function getConsultingWeek(startDate, now = new Date()) {
 }
 
 const TASK_STAT_FIELDS = [
-  { key: "automationRate", csv: "automation_rate", label: "자동화율(%)" },
-  { key: "timeSavings", csv: "time_savings", label: "시간 절감(분)" },
-  { key: "timeSavingsRate", csv: "time_savings_rate", label: "시간 절감율(%)" },
-  { key: "asIsTotalTime", csv: "as_is_total_time", label: "As-Is 총 시간(분)" },
-  { key: "toBeTotalTime", csv: "to_be_total_time", label: "To-Be 총 시간(분)" },
-  { key: "asIsWaitingHours", csv: "as_is_waiting_hours", label: "As-Is 대기시간(시간)" },
-  { key: "fteEquivalent", csv: "fte_equivalent", label: "FTE" },
-  { key: "annualSavingsHours", csv: "annual_savings_hours", label: "연간 절감시간(시간)" },
-  { key: "totalProcesses", csv: "total_processes", label: "프로세스 수" },
-  { key: "automatedProcessCount", csv: "automated_process_count", label: "자동화 프로세스 수" },
-  { key: "frequencyUnit", csv: "frequency_unit", label: "빈도 단위" },
-  { key: "frequencyCount", csv: "frequency_count", label: "빈도 횟수" },
-  { key: "annualFrequency", csv: "annual_frequency", label: "연간 빈도" },
-  { key: "estimatedDevelopmentCost", csv: "estimated_development_cost", label: "예상 개발비용" }
+  { key: "automationRate", csv: "automation_rate", label: "자동화율(%)", numeric: true },
+  { key: "timeSavings", csv: "time_savings", label: "시간 절감(분)", numeric: true },
+  { key: "timeSavingsRate", csv: "time_savings_rate", label: "시간 절감율(%)", numeric: true },
+  { key: "asIsTotalTime", csv: "as_is_total_time", label: "As-Is 총 시간(분)", numeric: true },
+  { key: "toBeTotalTime", csv: "to_be_total_time", label: "To-Be 총 시간(분)", numeric: true },
+  { key: "asIsWaitingHours", csv: "as_is_waiting_hours", label: "As-Is 대기시간(시간)", numeric: true },
+  { key: "fteEquivalent", csv: "fte_equivalent", label: "FTE", numeric: true },
+  { key: "annualSavingsHours", csv: "annual_savings_hours", label: "연간 절감시간(시간)", numeric: true },
+  { key: "totalProcesses", csv: "total_processes", label: "프로세스 수", numeric: true },
+  { key: "automatedProcessCount", csv: "automated_process_count", label: "자동화 프로세스 수", numeric: true },
+  { key: "frequencyUnit", csv: "frequency_unit", label: "빈도 단위", numeric: false },
+  { key: "frequencyCount", csv: "frequency_count", label: "빈도 횟수", numeric: true },
+  { key: "annualFrequency", csv: "annual_frequency", label: "연간 빈도", numeric: true },
+  { key: "estimatedDevelopmentCost", csv: "estimated_development_cost", label: "예상 개발비용(원)", numeric: true }
 ];
+
+function parseNumericValue(value) {
+  const text = String(value ?? "").trim().replace(/,/g, "");
+  if (!text) return "";
+  const num = Number(text);
+  return Number.isFinite(num) ? String(num) : text;
+}
+
+function formatThousands(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const raw = text.replace(/,/g, "");
+  if (!/^-?\d+(\.\d+)?$/.test(raw)) return text;
+  const [intPart, frac] = raw.split(".");
+  const signed = intPart.startsWith("-");
+  const digits = signed ? intPart.slice(1) : intPart;
+  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const withSign = `${signed ? "-" : ""}${grouped}`;
+  return frac != null ? `${withSign}.${frac}` : withSign;
+}
 
 function emptyHierarchy() {
   return { l1: "", l2: "", l3: "", l4: "" };
@@ -341,7 +361,11 @@ function normalizeStatistics(raw) {
   const next = emptyStatistics();
   TASK_STAT_FIELDS.forEach((field) => {
     const value = src[field.key] ?? src[field.csv];
-    next[field.key] = value == null ? "" : String(value);
+    if (value == null || value === "") {
+      next[field.key] = "";
+      return;
+    }
+    next[field.key] = field.numeric ? parseNumericValue(value) : String(value);
   });
   return next;
 }
@@ -411,6 +435,10 @@ function formatProcessFromSteps(steps, kind = "asis") {
         kind === "tobe"
           ? step.estimated_execution_time ?? step.execution_time ?? ""
           : step.execution_time ?? "";
+      if (kind === "tobe") {
+        const difficulty = normalizeDifficulty(step.difficulty);
+        return `${name} [${method}｜${tool}｜${minutes}분｜난이도 ${difficulty}]`;
+      }
       return `${name} [${method}｜${tool}｜${minutes}분]`;
     })
     .join(" > ");
@@ -558,7 +586,7 @@ function parseCsvTasks(text) {
           endDate:
             cols[idx(["완료일", "종료일", "enddate", "end", "task_end_date"])] || "",
           goal:
-            cols[idx(["성과목표", "성과 목표", "goal", "목표", "task_goal"])] || "",
+            cols[idx(["과제 목표", "과제목표", "성과목표", "성과 목표", "goal", "목표", "task_goal"])] || "",
           asIsProcess: Array.isArray(asIsJson) ? formatProcessFromSteps(asIsJson, "asis") : asIsRaw,
           toBeProcess: Array.isArray(toBeJson) ? formatProcessFromSteps(toBeJson, "tobe") : toBeRaw,
           progress: Number(cols[idx(["진척도", "progress"])] || 0) || 0,
