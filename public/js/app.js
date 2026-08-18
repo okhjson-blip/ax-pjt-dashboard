@@ -1116,7 +1116,7 @@
         {
           name: owner?.name || authName || "",
           email: owner?.email || "",
-          role: "과제 등록자",
+          role: "과제 담당자",
           position: owner?.dept || "",
           isOwner: true
         }
@@ -1160,19 +1160,30 @@
     `;
   }
 
+  function memberRoleSelectHtml(selected, editable = true) {
+    const value = normalizeMemberRole(selected);
+    const lock = editable ? "" : "disabled class='readonly'";
+    return `
+      <select class="task-member-role" ${lock}>
+        <option value="과제 리더" ${value === "과제 리더" ? "selected" : ""}>과제 리더</option>
+        <option value="과제 담당자" ${value === "과제 담당자" ? "selected" : ""}>과제 담당자</option>
+      </select>
+    `;
+  }
+
   function renderMemberRow(member, editable = true) {
     const m = normalizeTaskMember(member, Boolean(member?.isOwner));
-    const ro = !editable || m.isOwner ? "readonly class='readonly'" : "";
+    const identityLock = !editable || m.isOwner ? "readonly class='readonly'" : "";
     return `
       <div class="task-member-row" data-owner="${m.isOwner ? "1" : "0"}">
-        <input class="task-member-name" placeholder="이름" value="${escapeHtml(m.name)}" ${ro} />
-        <input class="task-member-role" placeholder="역할" value="${escapeHtml(m.role)}" ${m.isOwner ? "readonly class='readonly'" : ""} ${editable ? "" : "readonly class='readonly'"} />
-        <input class="task-member-email" type="email" placeholder="이메일" value="${escapeHtml(m.email)}" ${ro} />
+        <input class="task-member-name" placeholder="이름" value="${escapeHtml(m.name)}" ${identityLock} />
+        ${memberRoleSelectHtml(m.role, editable)}
+        <input class="task-member-email" type="email" placeholder="이메일" value="${escapeHtml(m.email)}" ${identityLock} />
         <input class="task-member-position" placeholder="직급/부서" value="${escapeHtml(m.position)}" ${editable ? "" : "readonly class='readonly'"} />
         ${
           editable && !m.isOwner
             ? '<button type="button" class="btn ghost small" data-action="remove-task-member">삭제</button>'
-            : '<span class="helper" style="margin:0">등록자</span>'
+            : '<span class="helper" style="margin:0">접속자</span>'
         }
       </div>
     `;
@@ -1185,7 +1196,7 @@
         <div class="section-title" style="margin-bottom:8px">
           <div>
             <h4 style="margin:0">과제 참여자</h4>
-            <p class="helper" style="margin:4px 0 0">과제 등록자(접속자)가 기본 기입되며, 추가 참여자를 등록할 수 있습니다.</p>
+            <p class="helper" style="margin:4px 0 0">접속자 정보가 기본 기입되며, 역할은 과제 리더/과제 담당자 중 선택할 수 있습니다.</p>
           </div>
           ${editable ? '<button type="button" class="btn ghost small" data-action="add-task-member">참여자 추가</button>' : ""}
         </div>
@@ -1221,7 +1232,7 @@
         normalizeTaskMember(
           {
             name: row.querySelector(".task-member-name")?.value.trim() || "",
-            role: row.querySelector(".task-member-role")?.value.trim() || "",
+            role: row.querySelector(".task-member-role")?.value.trim() || "과제 담당자",
             email: row.querySelector(".task-member-email")?.value.trim() || "",
             position: row.querySelector(".task-member-position")?.value.trim() || "",
             isOwner: row.dataset.owner === "1"
@@ -1253,20 +1264,20 @@
           <div class="field"><label>과제 목표</label><textarea id="task-goal" placeholder="달성하려는 과제 목표">${escapeHtml(draft.goal || "")}</textarea></div>
           <div class="field difficulty-field"><label>난이도</label>${difficultySelectHtml("task-difficulty", draft.difficulty || "중")}</div>
         </section>
-        <section class="task-add-panel">
+        <section class="task-add-panel process-design-panel">
           <h4>프로세스 설계</h4>
           <div class="field"><label>As-Is 프로세스</label><textarea id="task-asis" data-action="preview-process" placeholder="예: 단계A [수작업｜문서｜120분] > 단계B [수작업｜엑셀｜60분]">${escapeHtml(draft.asIsProcess || "")}</textarea></div>
           <div class="field"><label>To-Be 프로세스</label><textarea id="task-tobe" data-action="preview-process" placeholder="예: 단계A [자동화｜RPA｜30분｜난이도 중] > 단계B [자동화｜LLM｜15분｜난이도 하]">${escapeHtml(draft.toBeProcess || "")}</textarea></div>
           <p class="helper" style="margin-top:-6px">프로세스는 <strong>&gt;</strong> 로 단계를 구분합니다. To-Be는 대괄호 안에 <strong>난이도 상/중/하</strong>를 함께 입력할 수 있습니다.</p>
         </section>
       </div>
-      <div class="process-flow-stack">
-        <div id="task-asis-flow">${renderProcessFlow("As-Is (가로 흐름)", draft.asIsProcess || "", "horizontal")}</div>
-        <div id="task-tobe-flow">${renderProcessFlow("To-Be (가로 흐름)", draft.toBeProcess || "", "horizontal")}</div>
-      </div>
       ${renderHierarchyFields("task-", draft.hierarchy, true)}
       ${renderStatisticsFields("task-", draft.statistics, true)}
       ${renderMembersFields(members, true)}
+      <div class="process-flow-stack">
+        <div id="task-asis-flow">${renderProcessFlow("As-Is (세로 흐름)", draft.asIsProcess || "", "vertical")}</div>
+        <div id="task-tobe-flow">${renderProcessFlow("To-Be (세로 흐름)", draft.toBeProcess || "", "vertical")}</div>
+      </div>
       <div class="task-import-layout">
         <div class="field task-import-card">
           <label>CSV 업로드 (선택)</label>
@@ -1293,8 +1304,8 @@
       || "";
     const asIsFlow = document.getElementById("task-asis-flow");
     const toBeFlow = document.getElementById("task-tobe-flow");
-    if (asIsFlow) asIsFlow.innerHTML = renderProcessFlow("As-Is (가로 흐름)", asIs, "horizontal");
-    if (toBeFlow) toBeFlow.innerHTML = renderProcessFlow("To-Be (가로 흐름)", toBe, "horizontal");
+    if (asIsFlow) asIsFlow.innerHTML = renderProcessFlow("As-Is (세로 흐름)", asIs, "vertical");
+    if (toBeFlow) toBeFlow.innerHTML = renderProcessFlow("To-Be (세로 흐름)", toBe, "vertical");
   }
 
   function applyTaskDraftToInputs(draft) {
@@ -1443,19 +1454,19 @@
           <div class="field"><label>과제 목표</label><textarea id="detail-task-goal" ${editable ? "" : "readonly class='readonly'"}>${escapeHtml(task.goal || "")}</textarea></div>
           <div class="field difficulty-field"><label>난이도</label>${difficultySelectHtml("detail-task-difficulty", task.difficulty, !editable)}</div>
         </section>
-        <section class="task-add-panel">
+        <section class="task-add-panel process-design-panel">
           <h4>프로세스 설계</h4>
           <div class="field"><label>As-Is 프로세스</label><textarea id="detail-task-asis" data-action="preview-process" ${editable ? "" : "readonly class='readonly'"} placeholder="단계A [수작업｜문서｜120분] > 단계B [수작업｜엑셀｜60분]">${escapeHtml(task.asIsProcess || "")}</textarea></div>
           <div class="field"><label>To-Be 프로세스</label><textarea id="detail-task-tobe" data-action="preview-process" ${editable ? "" : "readonly class='readonly'"} placeholder="단계A [자동화｜RPA｜30분｜난이도 중] > 단계B [자동화｜LLM｜15분｜난이도 하]">${escapeHtml(task.toBeProcess || "")}</textarea></div>
         </section>
       </div>
-      <div class="process-flow-stack">
-        <div id="task-asis-flow">${renderProcessFlow("As-Is (가로 흐름)", task.asIsProcess, "horizontal")}</div>
-        <div id="task-tobe-flow">${renderProcessFlow("To-Be (가로 흐름)", task.toBeProcess, "horizontal")}</div>
-      </div>
       ${renderHierarchyFields("detail-task-", task.hierarchy, editable)}
       ${renderStatisticsFields("detail-task-", task.statistics, editable)}
       ${renderMembersFields(members, editable)}
+      <div class="process-flow-stack">
+        <div id="task-asis-flow">${renderProcessFlow("As-Is (세로 흐름)", task.asIsProcess, "vertical")}</div>
+        <div id="task-tobe-flow">${renderProcessFlow("To-Be (세로 흐름)", task.toBeProcess, "vertical")}</div>
+      </div>
       <p class="helper">흐름 차트는 <strong>&gt;</strong> 기준으로 노드를 나눕니다. To-Be 단계는 <strong>난이도 상/중/하</strong>를 포함할 수 있습니다.</p>
     `,
       `
@@ -1743,14 +1754,14 @@
       if (!list) return;
       list.insertAdjacentHTML(
         "beforeend",
-        renderMemberRow({ name: "", role: "", email: "", position: "", isOwner: false }, true)
+        renderMemberRow({ name: "", role: "과제 담당자", email: "", position: "", isOwner: false }, true)
       );
     }
 
     if (action === "remove-task-member") {
       const row = el.closest(".task-member-row");
       if (!row) return;
-      if (row.dataset.owner === "1") return toast("과제 등록자는 삭제할 수 없습니다.");
+      if (row.dataset.owner === "1") return toast("접속자(기본 참여자)는 삭제할 수 없습니다.");
       row.remove();
     }
 

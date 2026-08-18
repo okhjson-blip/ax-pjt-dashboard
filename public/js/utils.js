@@ -370,14 +370,22 @@ function normalizeStatistics(raw) {
   return next;
 }
 
+function normalizeMemberRole(role, isOwner = false) {
+  const raw = String(role || "").trim();
+  if (raw === "과제 리더") return "과제 리더";
+  if (raw === "과제 담당자" || raw === "과제 등록자" || isOwner || !raw) return "과제 담당자";
+  return "과제 담당자";
+}
+
 function normalizeTaskMember(raw, isOwner = false) {
   const src = raw && typeof raw === "object" ? raw : {};
+  const owner = Boolean(src.isOwner || isOwner);
   return {
     name: src.name || "",
-    role: src.role || (isOwner ? "과제 등록자" : ""),
+    role: normalizeMemberRole(src.role, owner),
     email: src.email || "",
     position: src.position || src.dept || "",
-    isOwner: Boolean(src.isOwner || isOwner)
+    isOwner: owner
   };
 }
 
