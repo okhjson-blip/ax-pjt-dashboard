@@ -108,7 +108,7 @@
 | **증상** | `WARNING! Build output contains no "functions" or "static" directory` |
 | **원인** | Express **services** 빌더(`app.js` + `framework: express`)는 Build Output API의 `functions/`·`static/`을 만들지 않음 |
 | **해결** | `framework: null`, Function은 `api/index.js`, 정적은 `public/`. 루트 `app.js`에서 `express` import 금지 |
-| **vercel.json** | `functions["api/index.js"].maxDuration: 300`, `includeFiles: "{backend/**,public/**}"` |
+| **vercel.json** | `functions["api/index.js"]` + `includeFiles`. Hobby 기본(Standard CPU, 300s) — `memory`/`maxDuration` 미지정 |
 | **Node** | `package.json` `engines.node: "24.x"` |
 
 ### 2.2 UI만 되고 API 404
@@ -178,7 +178,7 @@
 - [ ] UI는 `public/`
 - [ ] Function 엔트리는 `api/index.js`
 - [ ] `framework: null` — Express services 빌더 사용 안 함
-- [ ] `functions["api/index.js"].maxDuration` = 300
+- [ ] `functions["api/index.js"]` — Hobby 기본 duration(300s), memory 미지정
 - [ ] `engines.node` = `24.x`
 - [ ] `.vercel` 링크가 유효한 프로젝트인지 (`vercel project ls` / `vercel link`)
 - [ ] 호스팅 env: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `ADMIN_PASSWORD` (Production + Preview) 후 **재배포**

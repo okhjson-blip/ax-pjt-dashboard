@@ -1,11 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "fluid": true,
   "regions": ["sin1"],
   "framework": null,
   "functions": {
     "api/index.js": {
-      "maxDuration": 300,
-      "memory": 1024,
       "includeFiles": "{backend/**,public/**}"
     }
   }

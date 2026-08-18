@@ -130,8 +130,6 @@ SUPABASE_PUBLISHABLE_KEY=...     # 또는 SUPABASE_ANON_KEY (선택)
   "framework": null,
   "functions": {
     "api/index.js": {
-      "maxDuration": 300,
-      "memory": 1024,
       "includeFiles": "{backend/**,public/**}"
     }
   }
@@ -140,7 +138,7 @@ SUPABASE_PUBLISHABLE_KEY=...     # 또는 SUPABASE_ANON_KEY (선택)
 
 - 정적 UI: `public/**` → CDN (`/css`, `/js`)
 - API: `api/index.js` → `/api/*` (rewrite 불필요)
-- Function 제한: `maxDuration` 300초 (Pro 플랜 상한). Hobby는 플랜 최댓값으로 캡됩니다.
+- Function 제한: Hobby 기본값(Standard CPU, maxDuration 300초). `memory`/`maxDuration`은 지정하지 않습니다.
 
 1. [Vercel](https://vercel.com)에서 Git 저장소 Import, 또는 CLI:
    ```bash

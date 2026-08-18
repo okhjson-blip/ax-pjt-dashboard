@@ -68,7 +68,7 @@ backend/data/             # JSON 폴백 (로컬 전용, Vercel 불가)
 supabase/migrations/      # 스키마 마이그레이션 (task_weekly_reports 포함)
 supabase/seed.sql
 scripts/remote-schema.sql # SQL Editor 일괄 스키마
-vercel.json               # api/index.js Function + public static + maxDuration 300
+vercel.json               # api/index.js Function + public static + Fluid (Hobby 기본 duration)
 docs/                     # DEPLOY / DATABASE / LESSONS_LEARNED
 개발계획서.md
 UX시나리오설계서.md
