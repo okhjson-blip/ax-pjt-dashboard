@@ -363,11 +363,17 @@ textarea {
 
 .timeout-hint {
   margin: 0;
-  max-width: 280px;
+  max-width: 360px;
   font-size: 11px;
   line-height: 1.45;
   color: var(--amber);
   text-align: right;
+  word-break: keep-all;
+}
+
+.timeout-hint-line {
+  display: block;
+  white-space: nowrap;
 }
 
 .content {
@@ -1007,6 +1013,27 @@ input[type="range"].range-gray { accent-color: var(--muted); }
   gap: 8px;
 }
 
+.process-flow.vertical {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.process-split-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin: 6px 0 10px;
+}
+
+.process-split-grid .process-block {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fafbff;
+}
+
 .process-step {
   display: inline-flex;
   align-items: center;
@@ -1026,6 +1053,12 @@ input[type="range"].range-gray { accent-color: var(--muted); }
 .process-arrow {
   color: var(--primary);
   font-weight: 900;
+}
+
+.process-arrow.vertical {
+  display: inline-flex;
+  justify-content: center;
+  width: 100%;
 }
 
 .modal-head, .modal-foot {
@@ -1104,6 +1137,10 @@ input[type="range"].range-gray { accent-color: var(--muted); }
   }
 
   .task-row {
+    grid-template-columns: 1fr;
+  }
+
+  .process-split-grid {
     grid-template-columns: 1fr;
   }
 

@@ -461,7 +461,10 @@
     }
     if (state.view === "personal") {
       const hint =
-        '<p class="timeout-hint">타임아웃 시간 제한 30초로 잠시 입력을 쉴 때는 반드시 저장하여 주시기 바랍니다</p>';
+        '<p class="timeout-hint">' +
+        '<span class="timeout-hint-line">타임아웃 시간 제한 30초로 잠시 입력을 쉴 때는</span>' +
+        '<span class="timeout-hint-line">반드시 저장하여 주시기 바랍니다</span>' +
+        "</p>";
       if (isAdmin() && isViewingCurrentWeek()) {
         return `${hint}<button class="btn primary" data-action="save-feedback">피드백 저장</button>`;
       }
@@ -1231,9 +1234,11 @@
       </div>
       <div class="field"><label>성과 목표</label><textarea id="detail-task-goal" ${editable ? "" : "readonly class='readonly'"}>${escapeHtml(task.goal || "")}</textarea></div>
       <div class="field"><label>As-Is 프로세스</label><textarea id="detail-task-asis" ${editable ? "" : "readonly class='readonly'"} placeholder="단계A [수작업｜문서｜120분] > 단계B">${escapeHtml(task.asIsProcess || "")}</textarea></div>
-      ${renderProcessFlow("As-Is (가로 흐름)", task.asIsProcess)}
       <div class="field"><label>To-Be 프로세스</label><textarea id="detail-task-tobe" ${editable ? "" : "readonly class='readonly'"} placeholder="단계A [수작업｜문서｜120분] > 단계B">${escapeHtml(task.toBeProcess || "")}</textarea></div>
-      ${renderProcessFlow("To-Be (가로 흐름)", task.toBeProcess)}
+      <div class="process-split-grid">
+        ${renderProcessFlow("As-Is (세로 흐름)", task.asIsProcess, "vertical")}
+        ${renderProcessFlow("To-Be (세로 흐름)", task.toBeProcess, "vertical")}
+      </div>
       <p class="helper">흐름 차트는 <strong>&gt;</strong> 기준으로 노드를 나눕니다.</p>
     `,
       `

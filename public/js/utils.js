@@ -340,19 +340,20 @@ function parseProcessSteps(text) {
     .filter(Boolean);
 }
 
-function renderProcessFlow(label, text) {
+function renderProcessFlow(label, text, layout = "horizontal") {
   const steps = parseProcessSteps(text);
+  const vertical = layout === "vertical";
   if (!steps.length) {
     return `<div class="process-block"><div class="process-label">${escapeHtml(label)}</div><p class="helper">등록된 프로세스가 없습니다.</p></div>`;
   }
   return `
-    <div class="process-block">
+    <div class="process-block ${vertical ? "process-block-vertical" : ""}">
       <div class="process-label">${escapeHtml(label)}</div>
-      <div class="process-flow">
+      <div class="process-flow ${vertical ? "vertical" : ""}">
         ${steps
           .map(
             (step, i) => `
-          ${i ? '<span class="process-arrow">→</span>' : ""}
+          ${i ? `<span class="process-arrow ${vertical ? "vertical" : ""}">${vertical ? "↓" : "→"}</span>` : ""}
           <span class="process-step">${escapeHtml(step)}</span>
         `
           )

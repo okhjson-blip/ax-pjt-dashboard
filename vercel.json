@@ -2,10 +2,25 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "fluid": true,
   "regions": ["sin1"],
-  "framework": null,
-  "functions": {
-    "api/index.js": {
-      "includeFiles": "{backend/**,public/**}"
+  "services": {
+    "ax-pjt-dashboard": {
+      "root": ".",
+      "framework": "express",
+      "entrypoint": "app.js",
+      "functions": {
+        "app.js": {
+          "includeFiles": "backend/**"
+        }
+      }
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": {
+        "type": "service",
+        "service": "ax-pjt-dashboard"
+      }
+    }
+  ]
 }
