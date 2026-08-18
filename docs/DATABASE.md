@@ -19,7 +19,7 @@
 ```
 companies (extras: pmo, notices, participantUpdateRequest)
   └── participants
-        └── tasks (extras: startDate, endDate, goal, asIsProcess, toBeProcess, difficulty)
+        └── tasks (extras: startDate, endDate, goal, asIsProcess, toBeProcess, difficulty, hierarchy, statistics, members)
               └── task_weekly_reports (week_number별 진척·주간보고 스냅샷)
 app_meta (key/value JSON — 대시보드 메타)
 ```

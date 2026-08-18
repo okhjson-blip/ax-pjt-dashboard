@@ -298,6 +298,124 @@ function getConsultingWeek(startDate, now = new Date()) {
   return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1;
 }
 
+const TASK_STAT_FIELDS = [
+  { key: "automationRate", csv: "automation_rate", label: "자동화율(%)" },
+  { key: "timeSavings", csv: "time_savings", label: "시간 절감(분)" },
+  { key: "timeSavingsRate", csv: "time_savings_rate", label: "시간 절감율(%)" },
+  { key: "asIsTotalTime", csv: "as_is_total_time", label: "As-Is 총 시간(분)" },
+  { key: "toBeTotalTime", csv: "to_be_total_time", label: "To-Be 총 시간(분)" },
+  { key: "asIsWaitingHours", csv: "as_is_waiting_hours", label: "As-Is 대기시간(시간)" },
+  { key: "fteEquivalent", csv: "fte_equivalent", label: "FTE" },
+  { key: "annualSavingsHours", csv: "annual_savings_hours", label: "연간 절감시간(시간)" },
+  { key: "totalProcesses", csv: "total_processes", label: "프로세스 수" },
+  { key: "automatedProcessCount", csv: "automated_process_count", label: "자동화 프로세스 수" },
+  { key: "frequencyUnit", csv: "frequency_unit", label: "빈도 단위" },
+  { key: "frequencyCount", csv: "frequency_count", label: "빈도 횟수" },
+  { key: "annualFrequency", csv: "annual_frequency", label: "연간 빈도" },
+  { key: "estimatedDevelopmentCost", csv: "estimated_development_cost", label: "예상 개발비용" }
+];
+
+function emptyHierarchy() {
+  return { l1: "", l2: "", l3: "", l4: "" };
+}
+
+function emptyStatistics() {
+  return TASK_STAT_FIELDS.reduce((acc, field) => {
+    acc[field.key] = "";
+    return acc;
+  }, {});
+}
+
+function normalizeHierarchy(raw) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  return {
+    l1: src.l1 || "",
+    l2: src.l2 || "",
+    l3: src.l3 || "",
+    l4: src.l4 || ""
+  };
+}
+
+function normalizeStatistics(raw) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  const next = emptyStatistics();
+  TASK_STAT_FIELDS.forEach((field) => {
+    const value = src[field.key] ?? src[field.csv];
+    next[field.key] = value == null ? "" : String(value);
+  });
+  return next;
+}
+
+function normalizeTaskMember(raw, isOwner = false) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  return {
+    name: src.name || "",
+    role: src.role || (isOwner ? "과제 등록자" : ""),
+    email: src.email || "",
+    position: src.position || src.dept || "",
+    isOwner: Boolean(src.isOwner || isOwner)
+  };
+}
+
+function mergeTaskMembers(ownerList, extraList) {
+  const owners = (Array.isArray(ownerList) ? ownerList : [])
+    .map((m) => normalizeTaskMember(m, true))
+    .filter((m) => m.name);
+  const seen = new Set(owners.map((m) => `${m.name}|${m.role}|${m.email}`.toLowerCase()));
+  const extras = (Array.isArray(extraList) ? extraList : [])
+    .map((m) => normalizeTaskMember(m, false))
+    .filter((m) => {
+      if (!m.name) return false;
+      const key = `${m.name}|${m.role}|${m.email}`.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  extras.forEach((m) => {
+    m.isOwner = false;
+  });
+  return [...owners, ...extras];
+}
+
+function parseJsonCell(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "object") return value;
+  const text = String(value).trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (_err) {
+    try {
+      return JSON.parse(text.replace(/""/g, '"'));
+    } catch (_err2) {
+      return null;
+    }
+  }
+}
+
+function methodLabel(method, aiApplied) {
+  if (method === "manual") return "수작업";
+  if (method === "ai" || aiApplied) return "자동화";
+  return method || "";
+}
+
+function formatProcessFromSteps(steps, kind = "asis") {
+  if (!Array.isArray(steps) || !steps.length) return "";
+  const sorted = [...steps].sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+  return sorted
+    .map((step) => {
+      const name = step.name || "";
+      const method = methodLabel(step.method, step.ai_applied);
+      const tool = step.tool || step.automation_method || "";
+      const minutes =
+        kind === "tobe"
+          ? step.estimated_execution_time ?? step.execution_time ?? ""
+          : step.execution_time ?? "";
+      return `${name} [${method}｜${tool}｜${minutes}분]`;
+    })
+    .join(" > ");
+}
+
 function ensureTaskFields(task) {
   if (!task) return null;
   task.weeklySummary ??= "";
@@ -309,6 +427,11 @@ function ensureTaskFields(task) {
   task.asIsProcess ??= "";
   task.toBeProcess ??= "";
   task.difficulty = normalizeDifficulty(task.difficulty);
+  task.hierarchy = normalizeHierarchy(task.hierarchy);
+  task.statistics = normalizeStatistics(task.statistics);
+  task.members = Array.isArray(task.members)
+    ? task.members.map((m) => normalizeTaskMember(m, Boolean(m.isOwner)))
+    : [];
   if (!Array.isArray(task.weeklyReports)) task.weeklyReports = [];
   task.reportCompleted ??= Boolean(
     String(task.weeklySummary || "").trim() || String(task.nextWeekPlan || "").trim()
@@ -393,7 +516,14 @@ function parseCsvTasks(text) {
 
   const rows = lines.map(splitCsvLine);
   const header = rows[0].map((h) => h.toLowerCase());
-  const hasHeader = ["과제명", "name", "task", "과제"].some((h) => header.includes(h));
+  const hasHeader = [
+    "과제명",
+    "name",
+    "task",
+    "과제",
+    "task_name",
+    "csv_schema_version"
+  ].some((h) => header.includes(h));
   const dataRows = hasHeader ? rows.slice(1) : rows;
 
   const idx = (names) => {
@@ -407,16 +537,35 @@ function parseCsvTasks(text) {
   return dataRows
     .map((cols) => {
       if (hasHeader) {
-        const name = cols[idx(["과제명", "name", "task", "과제"])] || cols[0] || "";
+        const name =
+          cols[idx(["과제명", "name", "task", "과제", "task_name"])] || cols[0] || "";
+        const asIsRaw =
+          cols[idx(["asis", "as-is", "as_is", "현재프로세스", "as-is 프로세스", "as_is_processes_json"])] || "";
+        const toBeRaw =
+          cols[idx(["tobe", "to-be", "to_be", "개선프로세스", "to-be 프로세스", "to_be_processes_json"])] || "";
+        const asIsJson = parseJsonCell(asIsRaw);
+        const toBeJson = parseJsonCell(toBeRaw);
+        const hierarchy = normalizeHierarchy(parseJsonCell(cols[idx(["hierarchy_json", "hierarchy", "계층"])] || ""));
+        const statsJson = parseJsonCell(cols[idx(["statistics_json", "statistics", "통계"])] || "");
+        const statistics = normalizeStatistics(statsJson);
+        const membersRaw = parseJsonCell(cols[idx(["task_participants_json", "members", "참여자"])] || "");
+        const difficultyRaw =
+          cols[idx(["난이도", "difficulty", "level"])] || statsJson?.automation_difficulty || "중";
         return {
           name,
-          startDate: cols[idx(["시작일", "startdate", "start"])] || "",
-          endDate: cols[idx(["완료일", "종료일", "enddate", "end"])] || "",
-          goal: cols[idx(["성과목표", "성과 목표", "goal", "목표"])] || "",
-          asIsProcess: cols[idx(["asis", "as-is", "as_is", "현재프로세스", "as-is 프로세스"])] || "",
-          toBeProcess: cols[idx(["tobe", "to-be", "to_be", "개선프로세스", "to-be 프로세스"])] || "",
+          startDate:
+            cols[idx(["시작일", "startdate", "start", "task_start_date"])] || "",
+          endDate:
+            cols[idx(["완료일", "종료일", "enddate", "end", "task_end_date"])] || "",
+          goal:
+            cols[idx(["성과목표", "성과 목표", "goal", "목표", "task_goal"])] || "",
+          asIsProcess: Array.isArray(asIsJson) ? formatProcessFromSteps(asIsJson, "asis") : asIsRaw,
+          toBeProcess: Array.isArray(toBeJson) ? formatProcessFromSteps(toBeJson, "tobe") : toBeRaw,
           progress: Number(cols[idx(["진척도", "progress"])] || 0) || 0,
-          difficulty: normalizeDifficulty(cols[idx(["난이도", "difficulty", "level"])] || "중")
+          difficulty: normalizeDifficulty(difficultyRaw),
+          hierarchy,
+          statistics,
+          members: Array.isArray(membersRaw) ? membersRaw.map((m) => normalizeTaskMember(m)) : []
         };
       }
       return {
@@ -427,10 +576,13 @@ function parseCsvTasks(text) {
         asIsProcess: cols[4] || "",
         toBeProcess: cols[5] || "",
         progress: Number(cols[6] || 0) || 0,
-        difficulty: normalizeDifficulty(cols[7] || "중")
+        difficulty: normalizeDifficulty(cols[7] || "중"),
+        hierarchy: emptyHierarchy(),
+        statistics: emptyStatistics(),
+        members: []
       };
     })
-    .filter((row) => row.name.trim());
+    .filter((row) => row.name.trim() && !["csv_schema_version", "과제명", "name", "task_name"].includes(row.name.trim()));
 }
 
 function taskReportText(task, key, emptyText) {

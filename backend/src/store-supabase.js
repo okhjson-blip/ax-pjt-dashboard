@@ -91,6 +91,9 @@ function mapTaskRow(row, weeklyReports = []) {
     asIsProcess: extras.asIsProcess || row.as_is_process || "",
     toBeProcess: extras.toBeProcess || row.to_be_process || "",
     difficulty: extras.difficulty || "중",
+    hierarchy: extras.hierarchy || { l1: "", l2: "", l3: "", l4: "" },
+    statistics: extras.statistics || {},
+    members: Array.isArray(extras.members) ? extras.members : [],
     weeklyReports
   };
 }
@@ -197,7 +200,10 @@ async function writeData(data) {
               goal: task.goal || "",
               asIsProcess: task.asIsProcess || "",
               toBeProcess: task.toBeProcess || "",
-              difficulty: task.difficulty || "중"
+              difficulty: task.difficulty || "중",
+              hierarchy: task.hierarchy || { l1: "", l2: "", l3: "", l4: "" },
+              statistics: task.statistics || {},
+              members: Array.isArray(task.members) ? task.members : []
             }
           });
           for (const report of task.weeklyReports || []) {

@@ -142,4 +142,4 @@ alter table public.tasks
   add column if not exists extras jsonb not null default '{}'::jsonb;
 
 comment on column public.companies.extras is 'pmo, notices, participantUpdateRequest JSON';
-comment on column public.tasks.extras is 'startDate, endDate, goal, asIsProcess, toBeProcess, difficulty JSON';
+comment on column public.tasks.extras is 'startDate, endDate, goal, asIsProcess, toBeProcess, difficulty, hierarchy, statistics, members JSON';

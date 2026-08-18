@@ -1104,30 +1104,176 @@
     `;
   }
 
+  function defaultTaskMembers(participant) {
+    const owner =
+      isAdmin()
+        ? participant
+        : currentParticipant() || participant;
+    const authName = state.auth?.name || "";
+    return mergeTaskMembers(
+      [
+        {
+          name: owner?.name || authName || "",
+          email: owner?.email || "",
+          role: "과제 등록자",
+          position: owner?.dept || "",
+          isOwner: true
+        }
+      ],
+      []
+    );
+  }
+
+  function renderHierarchyFields(prefix, hierarchy, editable = true) {
+    const h = normalizeHierarchy(hierarchy);
+    const ro = editable ? "" : "readonly class='readonly'";
+    return `
+      <section class="task-add-panel">
+        <h4>과제 계층</h4>
+        <div class="grid hierarchy-grid">
+          <div class="field"><label>L1 대분류</label><input id="${prefix}h-l1" value="${escapeHtml(h.l1)}" ${ro} placeholder="예: 사업기획" /></div>
+          <div class="field"><label>L2 중분류</label><input id="${prefix}h-l2" value="${escapeHtml(h.l2)}" ${ro} placeholder="예: 신사업기획" /></div>
+          <div class="field"><label>L3 소분류</label><input id="${prefix}h-l3" value="${escapeHtml(h.l3)}" ${ro} placeholder="예: 시장 트렌드 조사" /></div>
+          <div class="field"><label>L4 세부분류</label><input id="${prefix}h-l4" value="${escapeHtml(h.l4)}" ${ro} placeholder="예: 신규 스타트업 발굴" /></div>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderStatisticsFields(prefix, statistics, editable = true) {
+    const stats = normalizeStatistics(statistics);
+    const ro = editable ? "" : "readonly class='readonly'";
+    const fields = TASK_STAT_FIELDS.map(
+      (field) => `
+        <div class="field">
+          <label>${escapeHtml(field.label)}</label>
+          <input id="${prefix}stat-${field.key}" value="${escapeHtml(stats[field.key] || "")}" ${ro} />
+        </div>
+      `
+    ).join("");
+    return `
+      <section class="task-add-panel">
+        <h4>통계</h4>
+        <div class="grid stats-form-grid">${fields}</div>
+      </section>
+    `;
+  }
+
+  function renderMemberRow(member, editable = true) {
+    const m = normalizeTaskMember(member, Boolean(member?.isOwner));
+    const ro = !editable || m.isOwner ? "readonly class='readonly'" : "";
+    return `
+      <div class="task-member-row" data-owner="${m.isOwner ? "1" : "0"}">
+        <input class="task-member-name" placeholder="이름" value="${escapeHtml(m.name)}" ${ro} />
+        <input class="task-member-role" placeholder="역할" value="${escapeHtml(m.role)}" ${m.isOwner ? "readonly class='readonly'" : ""} ${editable ? "" : "readonly class='readonly'"} />
+        <input class="task-member-email" type="email" placeholder="이메일" value="${escapeHtml(m.email)}" ${ro} />
+        <input class="task-member-position" placeholder="직급/부서" value="${escapeHtml(m.position)}" ${editable ? "" : "readonly class='readonly'"} />
+        ${
+          editable && !m.isOwner
+            ? '<button type="button" class="btn ghost small" data-action="remove-task-member">삭제</button>'
+            : '<span class="helper" style="margin:0">등록자</span>'
+        }
+      </div>
+    `;
+  }
+
+  function renderMembersFields(members, editable = true) {
+    const list = Array.isArray(members) && members.length ? members : [];
+    return `
+      <section class="task-add-panel">
+        <div class="section-title" style="margin-bottom:8px">
+          <div>
+            <h4 style="margin:0">과제 참여자</h4>
+            <p class="helper" style="margin:4px 0 0">과제 등록자(접속자)가 기본 기입되며, 추가 참여자를 등록할 수 있습니다.</p>
+          </div>
+          ${editable ? '<button type="button" class="btn ghost small" data-action="add-task-member">참여자 추가</button>' : ""}
+        </div>
+        <div id="task-members" class="task-member-list">
+          ${list.map((m) => renderMemberRow(m, editable)).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function collectHierarchy(prefix) {
+    return normalizeHierarchy({
+      l1: document.getElementById(`${prefix}h-l1`)?.value.trim() || "",
+      l2: document.getElementById(`${prefix}h-l2`)?.value.trim() || "",
+      l3: document.getElementById(`${prefix}h-l3`)?.value.trim() || "",
+      l4: document.getElementById(`${prefix}h-l4`)?.value.trim() || ""
+    });
+  }
+
+  function collectStatistics(prefix) {
+    const next = emptyStatistics();
+    TASK_STAT_FIELDS.forEach((field) => {
+      next[field.key] = document.getElementById(`${prefix}stat-${field.key}`)?.value.trim() || "";
+    });
+    return next;
+  }
+
+  function collectTaskMembers() {
+    return [...document.querySelectorAll("#task-members .task-member-row")]
+      .map((row) =>
+        normalizeTaskMember(
+          {
+            name: row.querySelector(".task-member-name")?.value.trim() || "",
+            role: row.querySelector(".task-member-role")?.value.trim() || "",
+            email: row.querySelector(".task-member-email")?.value.trim() || "",
+            position: row.querySelector(".task-member-position")?.value.trim() || "",
+            isOwner: row.dataset.owner === "1"
+          },
+          row.dataset.owner === "1"
+        )
+      )
+      .filter((m) => m.name);
+  }
+
   function renderAddTaskModal() {
     const participant = state.form.participantId
       ? allParticipants().find((r) => r.participant.id === state.form.participantId)?.participant
       : currentParticipant();
+    const members = state.form.taskMembers?.length ? state.form.taskMembers : defaultTaskMembers(participant);
+    const draft = state.form.taskDraft || {};
     return modalShell(
       "과제 추가",
       `
-      <p class="helper" style="margin-top:0">${escapeHtml(participant?.name || "선택 참여자")}에게 과제를 등록합니다. 직접 입력하거나 CSV를 업로드하세요.</p>
-      <div class="field"><label>과제명 *</label><input id="task-name" placeholder="예: 데이터 품질 점검" /></div>
-      <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
-        <div class="field"><label>시작일</label><input id="task-start" type="date" /></div>
-        <div class="field"><label>완료일</label><input id="task-end" type="date" /></div>
-        <div class="field"><label>난이도</label>${difficultySelectHtml("task-difficulty", "중")}</div>
+      <p class="helper" style="margin-top:0">${escapeHtml(participant?.name || "선택 참여자")}에게 과제를 등록합니다. 첨부 PDF/CSV로 자동기입하거나 직접 입력할 수 있습니다.</p>
+      <div class="task-add-layout">
+        <section class="task-add-panel">
+          <h4>기본 정보</h4>
+          <div class="field"><label>과제명 *</label><input id="task-name" placeholder="예: 데이터 품질 점검" value="${escapeHtml(draft.name || "")}" /></div>
+          <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
+            <div class="field"><label>시작일</label><input id="task-start" type="date" value="${escapeHtml(draft.startDate || "")}" /></div>
+            <div class="field"><label>완료일</label><input id="task-end" type="date" value="${escapeHtml(draft.endDate || "")}" /></div>
+            <div class="field"><label>난이도</label>${difficultySelectHtml("task-difficulty", draft.difficulty || "중")}</div>
+          </div>
+          <div class="field"><label>성과 목표</label><textarea id="task-goal" placeholder="달성하려는 성과 목표">${escapeHtml(draft.goal || "")}</textarea></div>
+        </section>
+        <section class="task-add-panel">
+          <h4>프로세스 설계</h4>
+          <div class="field"><label>As-Is 프로세스</label><textarea id="task-asis" placeholder="예: 단계A [수작업｜문서｜120분] > 단계B [자동화｜툴｜60분]">${escapeHtml(draft.asIsProcess || "")}</textarea></div>
+          <div class="field"><label>To-Be 프로세스</label><textarea id="task-tobe" placeholder="예: 단계A [수작업｜문서｜120분] > 단계B [자동화｜툴｜60분]">${escapeHtml(draft.toBeProcess || "")}</textarea></div>
+          <p class="helper" style="margin-top:-6px">프로세스는 <strong>&gt;</strong> 로 단계를 구분합니다. 대괄호 안 ｜ 등은 한 단계(노드) 안에 그대로 표시됩니다.</p>
+        </section>
       </div>
-      <div class="field"><label>성과 목표</label><textarea id="task-goal" placeholder="달성하려는 성과 목표"></textarea></div>
-      <div class="field"><label>As-Is 프로세스</label><textarea id="task-asis" placeholder="예: 단계A [수작업｜문서｜120분] > 단계B [자동화｜툴｜60분]"></textarea></div>
-      <div class="field"><label>To-Be 프로세스</label><textarea id="task-tobe" placeholder="예: 단계A [수작업｜문서｜120분] > 단계B [자동화｜툴｜60분]"></textarea></div>
-      <p class="helper" style="margin-top:-6px">프로세스는 <strong>&gt;</strong> 로 단계를 구분합니다. 대괄호 안 ｜ 등은 한 단계(노드) 안에 그대로 표시됩니다.</p>
-      <div class="field">
-        <label>CSV 업로드 (선택)</label>
-        <input id="task-csv" type="file" accept=".csv,text/csv" data-action="task-csv-change" />
-        <p class="helper">헤더 예: 과제명,시작일,완료일,성과목표,As-Is,To-Be,진척도,난이도</p>
+      ${renderHierarchyFields("task-", draft.hierarchy, true)}
+      ${renderStatisticsFields("task-", draft.statistics, true)}
+      ${renderMembersFields(members, true)}
+      <div class="task-import-layout">
+        <div class="field task-import-card">
+          <label>PDF 업로드 자동기입 (선택)</label>
+          <input id="task-pdf" type="file" accept=".pdf,application/pdf" data-action="task-pdf-change" />
+          <p class="helper">PDF 텍스트에서 과제명/기간/목표/As-Is/To-Be/난이도를 찾아 폼에 자동 입력합니다.</p>
+          <div id="pdf-preview" class="helper"></div>
+        </div>
+        <div class="field task-import-card">
+          <label>CSV 업로드 (선택)</label>
+          <input id="task-csv" type="file" accept=".csv,text/csv" data-action="task-csv-change" />
+          <p class="helper">BPA 과제 리포트 CSV(task_name, hierarchy_json, statistics_json, as_is/to_be_processes_json)를 지원합니다.</p>
+          <div id="csv-preview" class="helper"></div>
+        </div>
       </div>
-      <div id="csv-preview" class="helper"></div>
     `,
       `
       <button class="btn ghost" data-action="close-modal">취소</button>
@@ -1135,6 +1281,115 @@
     `,
       true
     );
+  }
+
+  function pickByLabel(text, labels) {
+    const lines = String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    for (const line of lines) {
+      for (const label of labels) {
+        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const rx = new RegExp(`^${escaped}\\s*[:：\\-]?\\s*(.+)$`, "i");
+        const matched = line.match(rx);
+        if (matched && matched[1]) return matched[1].trim();
+      }
+    }
+    return "";
+  }
+
+  function pickDate(value) {
+    const matched = String(value || "").match(/(20\d{2})[.\-/년\s]+(\d{1,2})[.\-/월\s]+(\d{1,2})/);
+    if (!matched) return "";
+    const y = matched[1];
+    const m = String(matched[2]).padStart(2, "0");
+    const d = String(matched[3]).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  function parseTaskDraftFromText(text) {
+    const source = String(text || "").replace(/\u00A0/g, " ");
+    const name = pickByLabel(source, ["과제명", "과제 명", "과제", "Task Name"]);
+    const goal = pickByLabel(source, ["성과 목표", "성과목표", "목표", "Goal"]);
+    const asIsProcess = pickByLabel(source, ["As-Is 프로세스", "As-Is", "AS-IS", "현재 프로세스"]);
+    const toBeProcess = pickByLabel(source, ["To-Be 프로세스", "To-Be", "TO-BE", "개선 프로세스"]);
+    const difficultyRaw = pickByLabel(source, ["난이도", "Difficulty", "Level"]);
+    const startRaw = pickByLabel(source, ["시작일", "착수일", "Start Date"]);
+    const endRaw = pickByLabel(source, ["완료일", "종료일", "End Date"]);
+    const periodRaw = pickByLabel(source, ["기간", "일정", "Schedule"]);
+    const periodSplit = periodRaw.split(/~|부터|까지|-/).map((v) => v.trim()).filter(Boolean);
+
+    return {
+      name,
+      goal,
+      asIsProcess,
+      toBeProcess,
+      difficulty: normalizeDifficulty(difficultyRaw || "중"),
+      startDate: pickDate(startRaw || periodSplit[0] || ""),
+      endDate: pickDate(endRaw || periodSplit[1] || "")
+    };
+  }
+
+  function applyTaskDraftToInputs(draft) {
+    if (!draft) return;
+    const mapping = [
+      ["task-name", "name"],
+      ["task-start", "startDate"],
+      ["task-end", "endDate"],
+      ["task-goal", "goal"],
+      ["task-asis", "asIsProcess"],
+      ["task-tobe", "toBeProcess"]
+    ];
+    mapping.forEach(([id, key]) => {
+      const input = document.getElementById(id);
+      if (!input) return;
+      const nextValue = String(draft[key] || "").trim();
+      if (!nextValue) return;
+      input.value = nextValue;
+    });
+
+    const diffSelect = document.getElementById("task-difficulty");
+    if (diffSelect && draft.difficulty) diffSelect.value = normalizeDifficulty(draft.difficulty);
+
+    const hierarchy = normalizeHierarchy(draft.hierarchy);
+    ["l1", "l2", "l3", "l4"].forEach((key) => {
+      const input = document.getElementById(`task-h-${key}`);
+      if (input && hierarchy[key]) input.value = hierarchy[key];
+    });
+
+    const statistics = normalizeStatistics(draft.statistics);
+    TASK_STAT_FIELDS.forEach((field) => {
+      const input = document.getElementById(`task-stat-${field.key}`);
+      if (input && statistics[field.key]) input.value = statistics[field.key];
+    });
+
+    const list = document.getElementById("task-members");
+    if (list && Array.isArray(draft.members)) {
+      const participant = state.form.participantId
+        ? allParticipants().find((r) => r.participant.id === state.form.participantId)?.participant
+        : currentParticipant();
+      const members = mergeTaskMembers(defaultTaskMembers(participant), draft.members);
+      list.innerHTML = members.map((m) => renderMemberRow(m, true)).join("");
+    }
+  }
+
+  async function extractPdfText(file) {
+    if (!window.pdfjsLib) {
+      throw new Error("PDF 라이브러리를 불러오지 못했습니다.");
+    }
+    const workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    if (window.pdfjsLib.GlobalWorkerOptions.workerSrc !== workerSrc) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+    }
+
+    const bytes = await file.arrayBuffer();
+    const doc = await window.pdfjsLib.getDocument({ data: bytes }).promise;
+    const pages = [];
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p);
+      const content = await page.getTextContent();
+      const lines = content.items.map((item) => item.str).join("\n");
+      if (lines.trim()) pages.push(lines);
+    }
+    return pages.join("\n");
   }
 
   function renderScheduleModal() {
@@ -1223,18 +1478,30 @@
       return modalShell("과제 상세", '<div class="empty">과제를 찾을 수 없습니다.</div>', `<button class="btn primary" data-action="close-modal">닫기</button>`);
     }
     const editable = canManageParticipant(participant);
+    const members = task.members?.length ? task.members : defaultTaskMembers(participant);
     return modalShell(
       "과제 상세",
       `
-      <div class="field"><label>과제명</label><input id="detail-task-name" value="${escapeHtml(task.name)}" ${editable ? "" : "readonly class='readonly'"} /></div>
-      <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
-        <div class="field"><label>시작일</label><input id="detail-task-start" type="date" value="${escapeHtml(task.startDate || "")}" ${editable ? "" : "readonly class='readonly'"} /></div>
-        <div class="field"><label>완료일</label><input id="detail-task-end" type="date" value="${escapeHtml(task.endDate || "")}" ${editable ? "" : "readonly class='readonly'"} /></div>
-        <div class="field"><label>난이도</label>${difficultySelectHtml("detail-task-difficulty", task.difficulty, !editable)}</div>
+      <div class="task-add-layout">
+        <section class="task-add-panel">
+          <h4>기본 정보</h4>
+          <div class="field"><label>과제명</label><input id="detail-task-name" value="${escapeHtml(task.name)}" ${editable ? "" : "readonly class='readonly'"} /></div>
+          <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
+            <div class="field"><label>시작일</label><input id="detail-task-start" type="date" value="${escapeHtml(task.startDate || "")}" ${editable ? "" : "readonly class='readonly'"} /></div>
+            <div class="field"><label>완료일</label><input id="detail-task-end" type="date" value="${escapeHtml(task.endDate || "")}" ${editable ? "" : "readonly class='readonly'"} /></div>
+            <div class="field"><label>난이도</label>${difficultySelectHtml("detail-task-difficulty", task.difficulty, !editable)}</div>
+          </div>
+          <div class="field"><label>성과 목표</label><textarea id="detail-task-goal" ${editable ? "" : "readonly class='readonly'"}>${escapeHtml(task.goal || "")}</textarea></div>
+        </section>
+        <section class="task-add-panel">
+          <h4>프로세스 설계</h4>
+          <div class="field"><label>As-Is 프로세스</label><textarea id="detail-task-asis" ${editable ? "" : "readonly class='readonly'"} placeholder="단계A [수작업｜문서｜120분] > 단계B">${escapeHtml(task.asIsProcess || "")}</textarea></div>
+          <div class="field"><label>To-Be 프로세스</label><textarea id="detail-task-tobe" ${editable ? "" : "readonly class='readonly'"} placeholder="단계A [수작업｜문서｜120분] > 단계B">${escapeHtml(task.toBeProcess || "")}</textarea></div>
+        </section>
       </div>
-      <div class="field"><label>성과 목표</label><textarea id="detail-task-goal" ${editable ? "" : "readonly class='readonly'"}>${escapeHtml(task.goal || "")}</textarea></div>
-      <div class="field"><label>As-Is 프로세스</label><textarea id="detail-task-asis" ${editable ? "" : "readonly class='readonly'"} placeholder="단계A [수작업｜문서｜120분] > 단계B">${escapeHtml(task.asIsProcess || "")}</textarea></div>
-      <div class="field"><label>To-Be 프로세스</label><textarea id="detail-task-tobe" ${editable ? "" : "readonly class='readonly'"} placeholder="단계A [수작업｜문서｜120분] > 단계B">${escapeHtml(task.toBeProcess || "")}</textarea></div>
+      ${renderHierarchyFields("detail-task-", task.hierarchy, editable)}
+      ${renderStatisticsFields("detail-task-", task.statistics, editable)}
+      ${renderMembersFields(members, editable)}
       <div class="process-split-grid">
         ${renderProcessFlow("As-Is (세로 흐름)", task.asIsProcess, "vertical")}
         ${renderProcessFlow("To-Be (세로 흐름)", task.toBeProcess, "vertical")}
@@ -1521,6 +1788,22 @@
       render();
     }
 
+    if (action === "add-task-member") {
+      const list = document.getElementById("task-members");
+      if (!list) return;
+      list.insertAdjacentHTML(
+        "beforeend",
+        renderMemberRow({ name: "", role: "", email: "", position: "", isOwner: false }, true)
+      );
+    }
+
+    if (action === "remove-task-member") {
+      const row = el.closest(".task-member-row");
+      if (!row) return;
+      if (row.dataset.owner === "1") return toast("과제 등록자는 삭제할 수 없습니다.");
+      row.remove();
+    }
+
     if (action === "nav") setView(el.dataset.view);
     if (action === "open-add-company") openModal("addCompany");
     if (action === "open-add-participant") openModal("addParticipant");
@@ -1536,6 +1819,8 @@
         return toast("본인 과제만 추가할 수 있습니다.");
       }
       state.form.csvTasks = null;
+      state.form.taskDraft = {};
+      state.form.taskMembers = defaultTaskMembers(target);
       openModal("addTask", { companyId: el.dataset.company, participantId: el.dataset.participant });
     }
     if (action === "open-add-notice") {
@@ -1864,6 +2149,9 @@
             asIsProcess: row.asIsProcess || "",
             toBeProcess: row.toBeProcess || "",
             difficulty: row.difficulty || "중",
+            hierarchy: row.hierarchy || emptyHierarchy(),
+            statistics: row.statistics || emptyStatistics(),
+            members: mergeTaskMembers(defaultTaskMembers(participant), row.members),
             weeklySummary: "",
             nextWeekPlan: "",
             instructorFeedback: "",
@@ -1885,6 +2173,9 @@
           asIsProcess: document.getElementById("task-asis")?.value || "",
           toBeProcess: document.getElementById("task-tobe")?.value || "",
           difficulty: document.getElementById("task-difficulty")?.value || "중",
+          hierarchy: collectHierarchy("task-"),
+          statistics: collectStatistics("task-"),
+          members: collectTaskMembers(),
           weeklySummary: "",
           nextWeekPlan: "",
           instructorFeedback: "",
@@ -1916,6 +2207,9 @@
       task.asIsProcess = document.getElementById("detail-task-asis")?.value || "";
       task.toBeProcess = document.getElementById("detail-task-tobe")?.value || "";
       task.difficulty = normalizeDifficulty(document.getElementById("detail-task-difficulty")?.value || task.difficulty);
+      task.hierarchy = collectHierarchy("detail-task-");
+      task.statistics = collectStatistics("detail-task-");
+      task.members = collectTaskMembers();
       await persist("과제 상세를 저장했습니다.");
       closeModal();
     }
@@ -2049,7 +2343,6 @@
       if (!file) return;
       const text = await file.text();
       const rows = parseCsvTasks(text);
-      state.form.csvTasks = rows;
       const preview = document.getElementById("csv-preview");
       if (preview) {
         preview.textContent = rows.length
@@ -2059,9 +2352,34 @@
               .join(", ")}${rows.length > 3 ? " ..." : ""}`
           : "CSV에서 유효한 과제 행을 찾지 못했습니다.";
       }
-      if (rows[0]) {
-        const nameInput = document.getElementById("task-name");
-        if (nameInput && !nameInput.value.trim()) nameInput.value = rows[0].name;
+      if (rows[0]) applyTaskDraftToInputs(rows[0]);
+      state.form.csvTasks = rows.length > 1 ? rows : null;
+    }
+
+    if (action === "task-pdf-change") {
+      const file = el.files?.[0];
+      if (!file) return;
+      const preview = document.getElementById("pdf-preview");
+      if (preview) preview.textContent = "PDF 분석 중...";
+
+      try {
+        const text = await extractPdfText(file);
+        if (!text.trim()) {
+          if (preview) preview.textContent = "PDF에서 텍스트를 추출하지 못했습니다. (스캔 문서일 수 있습니다)";
+          return;
+        }
+        const draft = parseTaskDraftFromText(text);
+        applyTaskDraftToInputs(draft);
+        const filledCount = ["name", "startDate", "endDate", "goal", "asIsProcess", "toBeProcess"].filter(
+          (k) => String(draft[k] || "").trim()
+        ).length;
+        if (preview) {
+          preview.textContent = filledCount
+            ? `PDF 분석 완료: ${filledCount}개 항목을 자동 기입했습니다.`
+            : "PDF 텍스트는 읽었지만 자동 매핑할 항목을 찾지 못했습니다. 수동 입력해 주세요.";
+        }
+      } catch (err) {
+        if (preview) preview.textContent = `PDF 처리 실패: ${err.message}`;
       }
     }
   });
