@@ -1501,6 +1501,26 @@ input[type="range"].range-gray { accent-color: var(--muted); }
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.stat-manual-field label {
+  color: var(--text);
+}
+
+.stat-manual-input {
+  border-color: #9aa8bf !important;
+  background: #fff !important;
+}
+
+.stat-manual-input:focus {
+  border-color: var(--primary) !important;
+}
+
+.stat-derived-input,
+input.stat-derived-input.readonly {
+  background: #f3f5f9 !important;
+  color: var(--text);
+  cursor: default;
+}
+
 .task-member-list {
   display: grid;
   gap: 8px;

@@ -630,14 +630,15 @@ function computePerformanceFromProcess(asIsSteps, toBeSteps, existingStats = {})
     computed.asIsWaitingHours = formatPerfNumber(waitingMinutes / 60, 1);
   }
 
-  let annualFrequency = parseNumericLoose(stats.annualFrequency);
-  if (annualFrequency == null) {
-    const count = parseNumericLoose(stats.frequencyCount);
-    const factor = resolveAnnualFrequencyFactor(stats.frequencyUnit);
-    if (count != null && factor != null) {
-      annualFrequency = count * factor;
-      computed.annualFrequency = formatPerfNumber(annualFrequency, 1);
-    }
+  let annualFrequency = null;
+  const count = parseNumericLoose(stats.frequencyCount);
+  const factor = resolveAnnualFrequencyFactor(stats.frequencyUnit);
+  if (count != null && factor != null) {
+    // 연간 수행 횟수 = 기간당 횟수 × 환산계수(일 365 / 주 52 / 월 12 / 년 1)
+    annualFrequency = count * factor;
+    computed.annualFrequency = formatPerfNumber(annualFrequency, 1);
+  } else {
+    computed.annualFrequency = "";
   }
 
   const savingsMinutes = parseNumericLoose(computed.timeSavings);
@@ -646,6 +647,9 @@ function computePerformanceFromProcess(asIsSteps, toBeSteps, existingStats = {})
     const annualSavingsHours = (savingsMinutes * annualFrequency) / 60;
     computed.annualSavingsHours = formatPerfNumber(annualSavingsHours, 1);
     computed.fteEquivalent = formatPerfNumber(annualSavingsHours / PERF_FTE_HOURS_PER_YEAR, 3);
+  } else {
+    computed.annualSavingsHours = "";
+    computed.fteEquivalent = "";
   }
 
   if (automatedProcessCount > 0) {

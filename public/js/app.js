@@ -1170,21 +1170,73 @@
     `;
   }
 
-  function renderStatisticsFields(prefix, statistics, editable = true) {
-    const stats = normalizeStatistics(statistics);
+  function frequencyUnitSelectHtml(prefix, selected, editable = true) {
+    const raw = String(selected || "").trim().toLowerCase();
+    let value = "";
+    if (raw === "일" || /day|daily|^d$/.test(raw)) value = "일";
+    else if (raw === "주" || /week|weekly|^w$/.test(raw)) value = "주";
+    else if (raw === "월" || /month|monthly|^m$/.test(raw)) value = "월";
+    else if (raw === "년" || /year|yearly|annual|^y$/.test(raw)) value = "년";
+    else if (["일", "주", "월", "년"].includes(String(selected || "").trim())) {
+      value = String(selected).trim();
+    }
+    const lock = editable ? "" : "disabled class='readonly'";
+    return `
+      <select id="${prefix}stat-frequencyUnit" class="stat-manual-input" ${lock} data-action="recalc-stats">
+        <option value="" ${!value ? "selected" : ""}>선택</option>
+        <option value="일" ${value === "일" ? "selected" : ""}>일</option>
+        <option value="주" ${value === "주" ? "selected" : ""}>주</option>
+        <option value="월" ${value === "월" ? "selected" : ""}>월</option>
+        <option value="년" ${value === "년" ? "selected" : ""}>년</option>
+      </select>
+    `;
+  }
+
+  function renderStatFieldInput(prefix, field, stats, editable = true) {
     const ro = editable ? "" : "readonly class='readonly'";
-    const fields = TASK_STAT_FIELDS.map(
-      (field) => `
+    const value = stats[field.key] || "";
+    if (field.key === "frequencyUnit") {
+      return `
+        <div class="field stat-manual-field">
+          <label>${escapeHtml(field.label)}</label>
+          ${frequencyUnitSelectHtml(prefix, value, editable)}
+          <p class="helper" style="margin:2px 0 0">기간당 기준(일/주/월/년)</p>
+        </div>
+      `;
+    }
+    if (field.key === "frequencyCount") {
+      return `
+        <div class="field stat-manual-field">
+          <label>${escapeHtml(field.label)}</label>
+          <input id="${prefix}stat-${field.key}" class="stat-manual-input" inputmode="decimal" value="${escapeHtml(formatThousands(value))}" ${ro} data-action="format-stat" placeholder="예: 1" />
+          <p class="helper" style="margin:2px 0 0">해당 단위당 수행 횟수</p>
+        </div>
+      `;
+    }
+    if (field.key === "annualFrequency") {
+      return `
         <div class="field">
           <label>${escapeHtml(field.label)}</label>
-          <input id="${prefix}stat-${field.key}" value="${escapeHtml(field.numeric ? formatThousands(stats[field.key] || "") : stats[field.key] || "")}" ${ro} data-action="${field.numeric ? "format-stat" : "recalc-stats"}" />
+          <input id="${prefix}stat-${field.key}" class="stat-derived-input readonly" value="${escapeHtml(formatThousands(value))}" readonly data-derived="annualFrequency" placeholder="단위×횟수로 자동 계산" />
+          <p class="helper" style="margin:2px 0 0">연간 수행 횟수 = 빈도 횟수 × 환산계수(일 365 / 주 52 / 월 12 / 년 1)</p>
         </div>
-      `
-    ).join("");
+      `;
+    }
+    return `
+      <div class="field">
+        <label>${escapeHtml(field.label)}</label>
+        <input id="${prefix}stat-${field.key}" value="${escapeHtml(field.numeric ? formatThousands(value) : value)}" ${ro} data-action="${field.numeric ? "format-stat" : "recalc-stats"}" />
+      </div>
+    `;
+  }
+
+  function renderStatisticsFields(prefix, statistics, editable = true) {
+    const stats = normalizeStatistics(statistics);
+    const fields = TASK_STAT_FIELDS.map((field) => renderStatFieldInput(prefix, field, stats, editable)).join("");
     return `
       <section class="task-add-panel">
         <h4>통계</h4>
-        <p class="helper" style="margin-top:-2px">빈 칸은 As-Is/To-Be 프로세스와 빈도 입력을 기준으로 BPA 성과 산식(절감·자동화율·연간 절감·FTE·개발비 참고값)으로 자동 채웁니다. 이미 입력된 값은 유지합니다.</p>
+        <p class="helper" style="margin-top:-2px">빈도 단위·횟수를 입력하면 <strong>연간 빈도</strong>가 자동 계산되고, 빈 통계 칸은 As-Is/To-Be 기준 BPA 성과 산식으로 채웁니다. 이미 입력된 값(빈도 제외 자동 산출 항목 외)은 유지합니다.</p>
         <div class="grid stats-form-grid">${fields}</div>
       </section>
     `;
@@ -1416,6 +1468,7 @@
   function syncProcessTotalsToStatistics() {
     const asIsSteps = collectProcessSteps("asis");
     const toBeSteps = collectProcessSteps("tobe");
+    const alwaysOverwrite = new Set(["annualFrequency", "annualSavingsHours", "fteEquivalent"]);
 
     ["task-", "detail-task-"].forEach((prefix) => {
       const probe = document.getElementById(`${prefix}stat-asIsTotalTime`);
@@ -1430,7 +1483,15 @@
       const computed = computePerformanceFromProcess(asIsSteps, toBeSteps, existing);
       TASK_STAT_FIELDS.forEach((field) => {
         const el = document.getElementById(`${prefix}stat-${field.key}`);
-        if (!el || el.readOnly || el.disabled) return;
+        if (!el || el.disabled) return;
+        // 연간 빈도·연간 절감·FTE는 산식 결과를 항상 반영(읽기 전용 산출값)
+        if (alwaysOverwrite.has(field.key)) {
+          if (!Object.prototype.hasOwnProperty.call(computed, field.key)) return;
+          const next = computed[field.key];
+          el.value = next === "" || next == null ? "" : field.numeric ? formatThousands(String(next)) : String(next);
+          return;
+        }
+        if (el.readOnly) return;
         if (String(el.value || "").trim() !== "") return;
         const next = computed[field.key];
         if (next == null || next === "") return;
