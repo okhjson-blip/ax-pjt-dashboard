@@ -8,6 +8,8 @@ backend/data/dashboard.json
 .env.*.local
 supabase/.temp/
 supabase/.branches/
+.tmp-sql/
+.tmp-sql/
 
 # Local UI mockup source (not pushed)
 ui mokup/

@@ -29,8 +29,23 @@ function writeDataSync(data) {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
+  let existing = {};
+  if (fs.existsSync(DATA_FILE)) {
+    try {
+      existing = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+    } catch {
+      existing = {};
+    }
+  }
   data.meta = data.meta || {};
   data.meta.lastSavedAt = new Date().toISOString();
+  const replaceReports = Boolean(data.replaceCompanyWeeklyReports);
+  delete data.replaceCompanyWeeklyReports;
+  if (!replaceReports) {
+    data.companyWeeklyReports = existing.companyWeeklyReports || [];
+  } else if (!Array.isArray(data.companyWeeklyReports)) {
+    data.companyWeeklyReports = existing.companyWeeklyReports || [];
+  }
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf8");
   return data;
 }
@@ -47,7 +62,31 @@ async function writeData(data) {
 
 async function resetData() {
   const seed = createSeedData();
+  seed.companyWeeklyReports = [];
+  seed.replaceCompanyWeeklyReports = true;
   return writeDataSync(seed);
+}
+
+async function getCompanyWeeklyReport(companyId, weekNumber) {
+  const data = await readData();
+  return (data.companyWeeklyReports || []).find(
+    (row) => row.companyId === companyId && Number(row.weekNumber) === Number(weekNumber)
+  ) || null;
+}
+
+async function upsertCompanyWeeklyReport(doc) {
+  const data = await readData();
+  const reports = Array.isArray(data.companyWeeklyReports) ? data.companyWeeklyReports : [];
+  const idx = reports.findIndex(
+    (row) => row.companyId === doc.companyId && Number(row.weekNumber) === Number(doc.weekNumber)
+  );
+  const next = { ...doc, updatedAt: new Date().toISOString() };
+  if (idx >= 0) reports[idx] = { ...reports[idx], ...next };
+  else reports.push(next);
+  data.companyWeeklyReports = reports;
+  data.replaceCompanyWeeklyReports = true;
+  writeDataSync(data);
+  return next;
 }
 
 module.exports = {
@@ -55,5 +94,7 @@ module.exports = {
   readData,
   writeData,
   resetData,
+  getCompanyWeeklyReport,
+  upsertCompanyWeeklyReport,
   uid
 };

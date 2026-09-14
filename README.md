@@ -10,10 +10,10 @@ Frontend(static) + Express API + **Supabase(Postgres)** 구성이며, 환경변�
 | 로그인 | 참여자(협력사·이름·이메일) / 관리자(비밀번호) |
 | 관리자 대시보드 | 협력사별 일정·PMO·참여자수·과제수, 과제 리스트(협력사·참여자·일정상태 필터), 협력사/과제 삭제 |
 | 협력사 허브 | 운영 요약, 공지, 운영 체크, 과제별 진척현황(주간보고 작성완료/미작성 색상) |
-| 개인 대시보드 | 과제·진척·주간 보고(금주 요약·차주 계획), 주차 선택으로 **과거 주간보고 조회** |
+| 개인 대시보드 | 과제·진척·주간 보고(금주 진전·진행 상세·이슈·차주 계획), 주차 선택으로 **과거 주간보고 조회** |
 | 주간 스냅샷 | `task_weekly_reports`에 과제×주차 저장 — 이번 주만 편집, 과거 주는 읽기 전용 |
 | 권한 | 참여자는 **본인 과제만** 열람·수정·저장 / 관리자는 전체 열람·피드백·운영 |
-| 레포트 | 협력사 단위 주간 PDF 발행 |
+| 레포트 | 협력사×주차 4단락 주간 PDF (초안 조립 → 관리자 편집 → 발행 동결) |
 
 ## 실행
 
@@ -113,7 +113,7 @@ CLI link가 안 되면 Dashboard **SQL Editor**에서 `scripts/remote-schema.sql
 | 참여자 제한 | 타 참여자 상세보기/개인 대시보드 이동·저장 불가 |
 | 관리자 | 전체 협력사·참여자·과제, 피드백 저장, 레포트 발행, 삭제 |
 
-주간보고 저장 시 **금주 요약·차주 계획**이 모두 있어야 저장됩니다.
+주간보고 저장 시 **금주 진전·차주 계획**이 모두 있어야 저장됩니다.
 
 ## 주요 API
 
@@ -125,7 +125,11 @@ CLI link가 안 되면 Dashboard **SQL Editor**에서 `scripts/remote-schema.sql
 | POST | `/api/auth/admin` | 관리자 로그인 |
 | POST | `/api/auth/participant` | 참여자 로그인 |
 | POST | `/api/auth/register` | 참여자 신규 등록 |
-| POST | `/api/reports/publish` | 레포트 발행 요청 기록 |
+| POST | `/api/reports/publish` | 레포트 발행 시각 기록 |
+| GET | `/api/companies/:id/weekly-reports/:week` | 협력사 주간 레포트 조회(없으면 초안 조립) |
+| PUT | `/api/companies/:id/weekly-reports/:week` | 주간 레포트 초안 저장 |
+| POST | `/api/companies/:id/weekly-reports/:week/assemble` | 빈 항목만 과제 주간보고에서 재조립 |
+| POST | `/api/companies/:id/weekly-reports/:week/publish` | 주간 레포트 동결 후 발행 |
 | POST | `/api/participants/sync` | 참여자 명단 동기화 요청 기록 |
 
 ## 배포

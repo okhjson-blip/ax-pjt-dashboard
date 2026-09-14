@@ -43,8 +43,11 @@ function createSeedData() {
                 asIsProcess: "수기 수집 > 엑셀 취합 > 담당자 검토",
                 toBeProcess: "센서 연동 > 자동 정제 > 대시보드 반영",
                 weeklySummary: "공정 병목 데이터를 정리하고 AI 분석 과제의 입력 항목을 확정했습니다.",
-                nextWeekPlan: "불량률 예측 모델의 기준 데이터를 보강합니다.",
+                weeklyDetail: "수집 항목 12개를 확정하고, 병목 구간 3곳의 샘플을 적재했습니다.",
+                weeklyIssues: "야간 설비 로그 일부 누락. 현장 담당자 확인 필요.",
+                nextWeekPlan: "불량률 예측 모델 기준 데이터 보강\n현업 검증 회의 진행",
                 instructorFeedback: "데이터 범위가 명확합니다.",
+                workStatus: "개발",
                 reportCompleted: true
               },
               {
@@ -154,8 +157,11 @@ function createSeedData() {
                 startDate: "2026-07-15",
                 endDate: "2026-08-05",
                 weeklySummary: "세그먼트 기준 정의 완료",
-                nextWeekPlan: "반응률 지표 검토",
+                weeklyDetail: "고객 세그먼트 기준을 4개 그룹으로 정리했습니다.",
+                weeklyIssues: "",
+                nextWeekPlan: "캠페인 반응률 예측 지표 추가 검토",
                 instructorFeedback: "",
+                workStatus: "설계",
                 reportCompleted: true
               },
               {

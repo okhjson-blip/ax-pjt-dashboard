@@ -16,6 +16,23 @@ function normalizeDifficulty(value) {
   return "중";
 }
 
+const WORK_STATUSES = ["설계", "개발", "구축", "가동", "운영", "보류"];
+
+function normalizeWorkStatus(value) {
+  const raw = String(value || "").trim();
+  return WORK_STATUSES.includes(raw) ? raw : "개발";
+}
+
+function workStatusSelectHtml(id, selected = "개발", disabled = false) {
+  const value = normalizeWorkStatus(selected);
+  const lock = disabled ? "disabled class='readonly difficulty-select'" : "class='difficulty-select'";
+  return `
+    <select id="${id}" ${lock}>
+      ${WORK_STATUSES.map((item) => `<option value="${item}" ${value === item ? "selected" : ""}>${item}</option>`).join("")}
+    </select>
+  `;
+}
+
 function difficultyWeight(value) {
   return DIFFICULTY_WEIGHT[normalizeDifficulty(value)] || 2;
 }
@@ -431,32 +448,280 @@ function methodLabel(method, aiApplied) {
   return method || "";
 }
 
+function normalizeProcessMethod(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw === "manual" || raw === "수작업" || raw === "수동") return "manual";
+  if (raw === "ai" || raw === "자동화" || raw === "auto" || raw === "automated" || raw === "자동화됨") {
+    return "ai";
+  }
+  return "";
+}
+
+function emptyProcessStep(kind = "asis", sortOrder = 0) {
+  const step = {
+    name: "",
+    sort_order: sortOrder,
+    method: "",
+    tool: "",
+    execution_time: ""
+  };
+  if (kind === "tobe") {
+    step.estimated_execution_time = "";
+    step.difficulty = "중";
+  }
+  return step;
+}
+
+function parseNumericLoose(value) {
+  const text = String(value ?? "")
+    .trim()
+    .replace(/,/g, "");
+  if (!text) return null;
+  const num = Number(text);
+  return Number.isFinite(num) ? num : null;
+}
+
+/** UI 시간(h) → 저장용 분(정수 문자열). 빈 값은 "". */
+function hoursToMinutes(hours) {
+  const n = parseNumericLoose(hours);
+  if (n == null) return "";
+  return String(Math.round(n * 60));
+}
+
+/** 저장용 분 → UI 시간(h) 입력값. 예: 90 → "1.5", 60 → "1" */
+function minutesToHoursInput(minutes) {
+  const n = parseNumericLoose(String(minutes ?? "").replace(/분\s*$/g, ""));
+  if (n == null) return "";
+  const hours = n / 60;
+  if (Number.isInteger(hours)) return String(hours);
+  return String(Math.round(hours * 10000) / 10000);
+}
+
+/** DSL/칩용: 분은 항상 "N분" */
+function formatProcessMinutes(minutes) {
+  const n = parseNumericLoose(String(minutes ?? "").replace(/분\s*$/g, ""));
+  if (n == null) return "";
+  return `${Math.round(n)}분`;
+}
+
+/** 미리보기 칩: 분은 시간 단위로 표시 */
+function formatProcessHoursChip(minutes) {
+  const hours = minutesToHoursInput(minutes);
+  if (!hours) return "";
+  return `${hours}시간`;
+}
+
+/** "120분" | "2시간" | "1.5h" | "90" → 분 문자열 */
+function parseDurationToMinutes(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const hoursMatch = text.match(/^([\d.,]+)\s*(시간|h|hr|hrs|hours?)$/i);
+  if (hoursMatch) return hoursToMinutes(hoursMatch[1]);
+  const minutesMatch = text.match(/^([\d.,]+)\s*분$/i);
+  if (minutesMatch) {
+    const n = parseNumericLoose(minutesMatch[1]);
+    return n == null ? "" : String(Math.round(n));
+  }
+  const n = parseNumericLoose(text);
+  return n == null ? "" : String(Math.round(n));
+}
+
+function sumProcessStepMinutes(steps, kind = "asis") {
+  return (Array.isArray(steps) ? steps : []).reduce((sum, step) => {
+    const raw =
+      kind === "tobe"
+        ? step.estimated_execution_time ?? step.execution_time ?? ""
+        : step.execution_time ?? "";
+    const n = parseNumericLoose(String(raw).replace(/분\s*$/g, ""));
+    return sum + (n == null ? 0 : n);
+  }, 0);
+}
+
+/** BPA 6단계 성과 계산용 상수 (criteria.md) */
+const PERF_ANNUAL_FACTORS = {
+  일: 365,
+  day: 365,
+  daily: 365,
+  d: 365,
+  주: 52,
+  week: 52,
+  weekly: 52,
+  w: 52,
+  월: 12,
+  month: 12,
+  monthly: 12,
+  m: 12,
+  년: 1,
+  year: 1,
+  yearly: 1,
+  annual: 1,
+  y: 1
+};
+const PERF_FTE_HOURS_PER_YEAR = 2248;
+const PERF_DEV_COST_PER_AUTOMATED_STEP = 8321500;
+
+function formatPerfNumber(value, digits) {
+  if (value == null || !Number.isFinite(Number(value))) return "";
+  return Number(Number(value).toFixed(digits)).toString();
+}
+
+function isProcessStepPresent(step) {
+  return Boolean(
+    step &&
+      (String(step.name || "").trim() ||
+        String(step.tool || "").trim() ||
+        String(step.method || "").trim() ||
+        String(step.execution_time || "").trim() ||
+        String(step.estimated_execution_time || "").trim())
+  );
+}
+
+function resolveAnnualFrequencyFactor(unitRaw) {
+  const unit = String(unitRaw || "").trim().toLowerCase();
+  if (!unit) return null;
+  if (PERF_ANNUAL_FACTORS[unit] != null) return PERF_ANNUAL_FACTORS[unit];
+  const compact = unit.replace(/\s+/g, "");
+  if (PERF_ANNUAL_FACTORS[compact] != null) return PERF_ANNUAL_FACTORS[compact];
+  if (/일|day/.test(unit)) return 365;
+  if (/주|week/.test(unit)) return 52;
+  if (/월|month/.test(unit)) return 12;
+  if (/년|year|annual/.test(unit)) return 1;
+  return null;
+}
+
+/**
+ * As-Is / To-Be 단계와 기존 통계(빈도 등)로 BPA 6단계 성과 지표를 산출한다.
+ * 반환값은 채울 수 있는 필드만 포함하며, 산정 불가 항목은 넣지 않는다.
+ */
+function computePerformanceFromProcess(asIsSteps, toBeSteps, existingStats = {}) {
+  const asIs = (Array.isArray(asIsSteps) ? asIsSteps : []).filter(isProcessStepPresent);
+  const toBe = (Array.isArray(toBeSteps) ? toBeSteps : []).filter(isProcessStepPresent);
+  const stats = existingStats && typeof existingStats === "object" ? existingStats : {};
+  const computed = {};
+
+  const asIsTotalTime = sumProcessStepMinutes(asIs, "asis");
+  const toBeTotalTime = sumProcessStepMinutes(toBe, "tobe");
+  if (asIs.length) computed.asIsTotalTime = formatPerfNumber(asIsTotalTime, 1);
+  if (toBe.length) computed.toBeTotalTime = formatPerfNumber(toBeTotalTime, 1);
+
+  if (asIs.length || toBe.length) {
+    const savings = Math.max(0, asIsTotalTime - toBeTotalTime);
+    computed.timeSavings = formatPerfNumber(savings, 1);
+    if (asIsTotalTime > 0) {
+      computed.timeSavingsRate = formatPerfNumber((savings / asIsTotalTime) * 100, 1);
+    }
+  }
+
+  const totalProcesses = asIs.length || toBe.length;
+  const automatedProcessCount = toBe.filter((step) => step.method === "ai").length;
+  if (totalProcesses > 0) {
+    computed.totalProcesses = String(totalProcesses);
+    computed.automatedProcessCount = String(automatedProcessCount);
+    computed.automationRate = formatPerfNumber((automatedProcessCount / totalProcesses) * 100, 1);
+  }
+
+  const waitingMinutes = asIs.reduce((sum, step) => {
+    if (!/대기/.test(String(step.name || ""))) return sum;
+    const n = parseNumericLoose(String(step.execution_time || "").replace(/분\s*$/g, ""));
+    return sum + (n == null ? 0 : n);
+  }, 0);
+  if (waitingMinutes > 0) {
+    computed.asIsWaitingHours = formatPerfNumber(waitingMinutes / 60, 1);
+  }
+
+  let annualFrequency = parseNumericLoose(stats.annualFrequency);
+  if (annualFrequency == null) {
+    const count = parseNumericLoose(stats.frequencyCount);
+    const factor = resolveAnnualFrequencyFactor(stats.frequencyUnit);
+    if (count != null && factor != null) {
+      annualFrequency = count * factor;
+      computed.annualFrequency = formatPerfNumber(annualFrequency, 1);
+    }
+  }
+
+  const savingsMinutes = parseNumericLoose(computed.timeSavings);
+  if (annualFrequency != null && savingsMinutes != null && asIsTotalTime > 0) {
+    // 모든 단계가 매회 실행·사람 투입시간 기준일 때: 건당 절감 × 연간 횟수 ÷ 60
+    const annualSavingsHours = (savingsMinutes * annualFrequency) / 60;
+    computed.annualSavingsHours = formatPerfNumber(annualSavingsHours, 1);
+    computed.fteEquivalent = formatPerfNumber(annualSavingsHours / PERF_FTE_HOURS_PER_YEAR, 3);
+  }
+
+  if (automatedProcessCount > 0) {
+    computed.estimatedDevelopmentCost = String(
+      automatedProcessCount * PERF_DEV_COST_PER_AUTOMATED_STEP
+    );
+  }
+
+  return computed;
+}
+
 function formatProcessFromSteps(steps, kind = "asis") {
   if (!Array.isArray(steps) || !steps.length) return "";
   const sorted = [...steps].sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
   return sorted
     .map((step) => {
-      const name = step.name || "";
+      const name = String(step.name || "").trim();
       const method = methodLabel(step.method, step.ai_applied);
-      const tool = step.tool || step.automation_method || "";
+      const tool = String(step.tool || step.automation_method || "").trim();
       const minutes =
         kind === "tobe"
           ? step.estimated_execution_time ?? step.execution_time ?? ""
           : step.execution_time ?? "";
+      const minutesStr = formatProcessMinutes(minutes);
       if (kind === "tobe") {
         const difficulty = normalizeDifficulty(step.difficulty);
-        return `${name} [${method}｜${tool}｜${minutes}분｜난이도 ${difficulty}]`;
+        const hasMeta = method || tool || minutesStr;
+        if (!hasMeta) return name;
+        return `${name} [${method}｜${tool}｜${minutesStr}｜난이도 ${difficulty}]`;
       }
-      return `${name} [${method}｜${tool}｜${minutes}분]`;
+      const hasMeta = method || tool || minutesStr;
+      if (!hasMeta) return name;
+      return `${name} [${method}｜${tool}｜${minutesStr}]`;
     })
+    .filter(Boolean)
     .join(" > ");
+}
+
+function parseProcessStepToken(token, kind = "asis", sortOrder = 0) {
+  const text = String(token || "").trim();
+  if (!text) return null;
+  const step = emptyProcessStep(kind, sortOrder);
+  const matched = text.match(/^(.+?)\s*\[([^\]]*)\]\s*$/);
+  if (!matched) {
+    step.name = text;
+    return step;
+  }
+  step.name = matched[1].trim();
+  const parts = matched[2].split(/[|｜]/).map((part) => part.trim());
+  step.method = normalizeProcessMethod(parts[0] || "");
+  step.tool = parts[1] || "";
+  const minutesRaw = parseDurationToMinutes(parts[2] || "");
+  step.execution_time = minutesRaw;
+  if (kind === "tobe") {
+    step.estimated_execution_time = minutesRaw;
+    const diffPart = parts[3] || "";
+    const diffMatch = diffPart.match(/(상|중|하|high|mid|medium|low|h|m|l)/i);
+    step.difficulty = normalizeDifficulty(diffMatch ? diffMatch[1] : "중");
+  }
+  return step;
+}
+
+function parseProcessFromText(text, kind = "asis") {
+  return parseProcessSteps(text)
+    .map((token, index) => parseProcessStepToken(token, kind, index + 1))
+    .filter(Boolean);
 }
 
 function ensureTaskFields(task) {
   if (!task) return null;
   task.weeklySummary ??= "";
+  task.weeklyDetail ??= "";
+  task.weeklyIssues ??= "";
   task.nextWeekPlan ??= "";
   task.instructorFeedback ??= "";
+  task.workStatus = normalizeWorkStatus(task.workStatus);
   task.startDate ??= "";
   task.endDate ??= "";
   task.goal ??= "";
@@ -499,8 +764,31 @@ function parseProcessSteps(text) {
     .filter(Boolean);
 }
 
-function renderProcessFlow(label, text, layout = "horizontal") {
-  const steps = parseProcessSteps(text);
+function renderProcessStepChips(step, kind = "asis") {
+  const chips = [];
+  const method = methodLabel(step.method, step.ai_applied);
+  if (method) chips.push(method);
+  const tool = String(step.tool || step.automation_method || "").trim();
+  if (tool) chips.push(tool);
+  const minutes =
+    kind === "tobe"
+      ? step.estimated_execution_time ?? step.execution_time ?? ""
+      : step.execution_time ?? "";
+  const hoursChip = formatProcessHoursChip(minutes);
+  if (hoursChip) chips.push(hoursChip);
+  if (kind === "tobe" && String(step.difficulty || "").trim()) {
+    chips.push(`난이도 ${normalizeDifficulty(step.difficulty)}`);
+  }
+  if (!chips.length) return "";
+  return `<span class="process-step-chips">${chips
+    .map((chip) => `<span class="process-chip">${escapeHtml(chip)}</span>`)
+    .join("")}</span>`;
+}
+
+function renderProcessFlow(label, textOrSteps, layout = "horizontal", kind = "asis") {
+  const steps = Array.isArray(textOrSteps)
+    ? textOrSteps.filter((step) => step && (step.name || step.tool || step.method || step.execution_time || step.estimated_execution_time))
+    : parseProcessFromText(textOrSteps, kind);
   const vertical = layout === "vertical";
   if (!steps.length) {
     return `<div class="process-block"><div class="process-label">${escapeHtml(label)}</div><p class="helper">등록된 프로세스가 없습니다.</p></div>`;
@@ -513,7 +801,10 @@ function renderProcessFlow(label, text, layout = "horizontal") {
           .map(
             (step, i) => `
           ${i ? `<span class="process-arrow ${vertical ? "vertical" : ""}">${vertical ? "↓" : "→"}</span>` : ""}
-          <span class="process-step">${escapeHtml(step)}</span>
+          <span class="process-step">
+            <span class="process-step-title">${escapeHtml(step.name || "이름 없음")}</span>
+            ${renderProcessStepChips(step, kind)}
+          </span>
         `
           )
           .join("")}

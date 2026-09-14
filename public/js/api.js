@@ -62,6 +62,31 @@ const API = {
     });
   },
 
+  getCompanyWeeklyReport(companyId, week) {
+    return this.request(`/companies/${encodeURIComponent(companyId)}/weekly-reports/${week}`);
+  },
+
+  saveCompanyWeeklyReport(companyId, week, payload) {
+    return this.request(`/companies/${encodeURIComponent(companyId)}/weekly-reports/${week}`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+  },
+
+  assembleCompanyWeeklyReport(companyId, week, payload) {
+    return this.request(`/companies/${encodeURIComponent(companyId)}/weekly-reports/${week}/assemble`, {
+      method: "POST",
+      body: JSON.stringify(payload || {})
+    });
+  },
+
+  publishCompanyWeeklyReport(companyId, week, payload) {
+    return this.request(`/companies/${encodeURIComponent(companyId)}/weekly-reports/${week}/publish`, {
+      method: "POST",
+      body: JSON.stringify(payload || {})
+    });
+  },
+
   syncParticipants() {
     return this.request("/participants/sync", {
       method: "POST",

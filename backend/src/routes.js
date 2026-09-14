@@ -1,5 +1,12 @@
 const express = require("express");
-const { readData, writeData, uid, isSupabaseConfigured } = require("./store");
+const { readData, writeData, uid, isSupabaseConfigured, getCompanyWeeklyReport, upsertCompanyWeeklyReport } = require("./store");
+const {
+  getConsultingWeek,
+  assembleCompanyWeeklyReport,
+  mergeAssembledDraft,
+  normalizeReportDoc,
+  companyWeeklyReportId
+} = require("./weekly-report");
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin2026";
 
@@ -141,6 +148,139 @@ function createRouter() {
         name: participant.name,
         participantId: participant.id,
         companyId: company.id
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/companies/:companyId/weekly-reports/:week", async (req, res, next) => {
+    try {
+      const companyId = String(req.params.companyId || "");
+      const weekNumber = Number(req.params.week);
+      if (!companyId || !Number.isInteger(weekNumber) || weekNumber < 1) {
+        return res.status(400).json({ error: "협력사와 주차가 필요합니다." });
+      }
+      const data = await readData();
+      const company = data.companies.find((c) => c.id === companyId);
+      if (!company) return res.status(404).json({ error: "협력사를 찾을 수 없습니다." });
+
+      const saved = await getCompanyWeeklyReport(companyId, weekNumber);
+      if (saved) {
+        return res.json({
+          ok: true,
+          saved: true,
+          assembled: false,
+          currentWeek: getConsultingWeek(company.schedule?.startDate),
+          report: normalizeReportDoc(saved, company)
+        });
+      }
+
+      const assembled = assembleCompanyWeeklyReport(company, weekNumber);
+      return res.json({
+        ok: true,
+        saved: false,
+        assembled: true,
+        currentWeek: getConsultingWeek(company.schedule?.startDate),
+        report: assembled
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put("/companies/:companyId/weekly-reports/:week", async (req, res, next) => {
+    try {
+      const companyId = String(req.params.companyId || "");
+      const weekNumber = Number(req.params.week);
+      if (!companyId || !Number.isInteger(weekNumber) || weekNumber < 1) {
+        return res.status(400).json({ error: "협력사와 주차가 필요합니다." });
+      }
+      const data = await readData();
+      const company = data.companies.find((c) => c.id === companyId);
+      if (!company) return res.status(404).json({ error: "협력사를 찾을 수 없습니다." });
+
+      const existing = await getCompanyWeeklyReport(companyId, weekNumber);
+      const incoming = normalizeReportDoc(
+        {
+          ...(existing || {}),
+          ...(req.body || {}),
+          id: existing?.id || companyWeeklyReportId(companyId, weekNumber),
+          companyId,
+          weekNumber,
+          status: "draft"
+        },
+        company
+      );
+      const saved = await upsertCompanyWeeklyReport(incoming);
+      res.json({ ok: true, saved: true, report: saved });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post("/companies/:companyId/weekly-reports/:week/assemble", async (req, res, next) => {
+    try {
+      const companyId = String(req.params.companyId || "");
+      const weekNumber = Number(req.params.week);
+      if (!companyId || !Number.isInteger(weekNumber) || weekNumber < 1) {
+        return res.status(400).json({ error: "협력사와 주차가 필요합니다." });
+      }
+      const data = await readData();
+      const company = data.companies.find((c) => c.id === companyId);
+      if (!company) return res.status(404).json({ error: "협력사를 찾을 수 없습니다." });
+
+      const existing = await getCompanyWeeklyReport(companyId, weekNumber);
+      const current = existing
+        ? normalizeReportDoc({ ...existing, ...(req.body || {}), companyId, weekNumber }, company)
+        : normalizeReportDoc({ ...(req.body || {}), companyId, weekNumber }, company);
+      const assembled = assembleCompanyWeeklyReport(company, weekNumber);
+      const merged = mergeAssembledDraft(current, assembled);
+      merged.status = "draft";
+      const saved = await upsertCompanyWeeklyReport(merged);
+      res.json({ ok: true, saved: true, assembled: true, report: saved });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post("/companies/:companyId/weekly-reports/:week/publish", async (req, res, next) => {
+    try {
+      const companyId = String(req.params.companyId || "");
+      const weekNumber = Number(req.params.week);
+      if (!companyId || !Number.isInteger(weekNumber) || weekNumber < 1) {
+        return res.status(400).json({ error: "협력사와 주차가 필요합니다." });
+      }
+      const data = await readData();
+      const company = data.companies.find((c) => c.id === companyId);
+      if (!company) return res.status(404).json({ error: "협력사를 찾을 수 없습니다." });
+
+      const existing = await getCompanyWeeklyReport(companyId, weekNumber);
+      const incoming = normalizeReportDoc(
+        {
+          ...(existing || assembleCompanyWeeklyReport(company, weekNumber)),
+          ...(req.body || {}),
+          id: existing?.id || companyWeeklyReportId(companyId, weekNumber),
+          companyId,
+          weekNumber,
+          status: "published",
+          publishedAt: new Date().toISOString()
+        },
+        company
+      );
+      incoming.status = "published";
+      incoming.publishedAt = incoming.publishedAt || new Date().toISOString();
+      const saved = await upsertCompanyWeeklyReport(incoming);
+
+      data.meta = data.meta || {};
+      data.meta.lastReportRequestAt = saved.publishedAt;
+      await writeData(data);
+
+      res.json({
+        ok: true,
+        saved: true,
+        report: saved,
+        requestedAt: data.meta.lastReportRequestAt
       });
     } catch (err) {
       next(err);

@@ -19,8 +19,9 @@
 ```
 companies (extras: pmo, notices, participantUpdateRequest)
   └── participants
-        └── tasks (extras: startDate, endDate, goal, asIsProcess, toBeProcess, difficulty, hierarchy, statistics, members)
-              └── task_weekly_reports (week_number별 진척·주간보고 스냅샷)
+        └── tasks (extras: startDate, endDate, goal, asIsProcess, toBeProcess, difficulty, hierarchy, statistics, members, workStatus)
+              └── task_weekly_reports (week_number별 진척·금주 진전·진행 상세·이슈·차주 계획 스냅샷)
+company_weekly_reports (협력사×주차 PDF 레포트 초안/발행 문서)
 app_meta (key/value JSON — 대시보드 메타)
 ```
 
@@ -32,6 +33,7 @@ app_meta (key/value JSON — 대시보드 메타)
 - `20260806050925_init_dashboard_schema`
 - `20260806080226_company_pmo_notices_task_details` (`extras` 컬럼)
 - `20260810010000_task_weekly_reports` (과제×주차 스냅샷)
+- `20260911070054_weekly_pdf_report` (주간보고 상세 필드 + 협력사 주간 레포트)
 ## 환경변수
 
 앱 런타임 (`backend/src/env.js`):

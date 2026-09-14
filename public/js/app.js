@@ -23,6 +23,36 @@
     lastLocalSaveAt: null
   };
 
+  function taskReportPatch(task, extra = {}) {
+    const t = ensureTaskFields(task) || {};
+    return {
+      progress: Number(t.progress || 0),
+      weeklySummary: t.weeklySummary || "",
+      weeklyDetail: t.weeklyDetail || "",
+      weeklyIssues: t.weeklyIssues || "",
+      nextWeekPlan: t.nextWeekPlan || "",
+      instructorFeedback: t.instructorFeedback || "",
+      workStatus: t.workStatus || "개발",
+      reportCompleted: Boolean(t.reportCompleted),
+      ...extra
+    };
+  }
+
+  function emptyReportView(missing = true) {
+    return {
+      progress: 0,
+      weeklySummary: "",
+      weeklyDetail: "",
+      weeklyIssues: "",
+      nextWeekPlan: "",
+      instructorFeedback: "",
+      workStatus: "개발",
+      reportCompleted: false,
+      savedAt: null,
+      missing
+    };
+  }
+
   function currentWeekNumber(company = currentCompany()) {
     return getConsultingWeek(company?.schedule?.startDate);
   }
@@ -46,46 +76,32 @@
 
   function viewTaskReport(task, company = currentCompany()) {
     const t = ensureTaskFields(task);
-    if (!t) {
-      return {
-        progress: 0,
-        weeklySummary: "",
-        nextWeekPlan: "",
-        instructorFeedback: "",
-        reportCompleted: false,
-        savedAt: null,
-        missing: true
-      };
-    }
+    if (!t) return emptyReportView(true);
     const week = selectedWeekNumber(company);
     if (isViewingCurrentWeek(company)) {
       return {
         progress: Number(t.progress || 0),
         weeklySummary: t.weeklySummary || "",
+        weeklyDetail: t.weeklyDetail || "",
+        weeklyIssues: t.weeklyIssues || "",
         nextWeekPlan: t.nextWeekPlan || "",
         instructorFeedback: t.instructorFeedback || "",
+        workStatus: t.workStatus || "개발",
         reportCompleted: Boolean(t.reportCompleted),
         savedAt: state.lastLocalSaveAt || state.meta?.lastSavedAt || null,
         missing: false
       };
     }
     const snap = getTaskWeekSnapshot(t, week);
-    if (!snap) {
-      return {
-        progress: 0,
-        weeklySummary: "",
-        nextWeekPlan: "",
-        instructorFeedback: "",
-        reportCompleted: false,
-        savedAt: null,
-        missing: true
-      };
-    }
+    if (!snap) return emptyReportView(true);
     return {
       progress: Number(snap.progress || 0),
       weeklySummary: snap.weeklySummary || "",
+      weeklyDetail: snap.weeklyDetail || "",
+      weeklyIssues: snap.weeklyIssues || "",
       nextWeekPlan: snap.nextWeekPlan || "",
       instructorFeedback: snap.instructorFeedback || "",
+      workStatus: snap.workStatus || t.workStatus || "개발",
       reportCompleted: Boolean(snap.reportCompleted),
       savedAt: snap.savedAt || null,
       missing: false
@@ -102,8 +118,11 @@
       weekNumber: week,
       progress: Number(patch.progress || 0),
       weeklySummary: patch.weeklySummary || "",
+      weeklyDetail: patch.weeklyDetail || "",
+      weeklyIssues: patch.weeklyIssues || "",
       nextWeekPlan: patch.nextWeekPlan || "",
       instructorFeedback: patch.instructorFeedback || "",
+      workStatus: patch.workStatus || task.workStatus || "개발",
       reportCompleted: Boolean(patch.reportCompleted),
       savedAt: patch.savedAt || new Date().toISOString()
     };
@@ -976,7 +995,7 @@
                 <h3>주간 보고 · ${week}주차</h3>
                 <p>${
                   viewingCurrent
-                    ? "과제를 선택한 뒤 과제별 금주 요약, 차주 계획, 컨설턴트 피드백을 관리합니다."
+                    ? "과제를 선택한 뒤 금주 진전, 진행 상세, 이슈, 차주 계획을 작성합니다."
                     : "선택한 주차에 저장된 스냅샷을 조회합니다."
                 }</p>
               </div>
@@ -1007,12 +1026,21 @@
                 </div>
               </div>
               <div class="field">
-                <label>금주 요약</label>
-                <textarea id="weekly-summary" ${canEditReport ? "" : "readonly class='readonly'"}>${escapeHtml(reportView.weeklySummary || "")}</textarea>
+                <label>금주 진전 *</label>
+                <textarea id="weekly-summary" placeholder="한두 문장으로 이번 주 진전을 적어 주세요." ${canEditReport ? "" : "readonly class='readonly'"}>${escapeHtml(reportView.weeklySummary || "")}</textarea>
               </div>
               <div class="field">
-                <label>차주 계획</label>
-                <textarea id="task-next-plan" ${canEditReport ? "" : "readonly class='readonly'"}>${escapeHtml(reportView.nextWeekPlan || "")}</textarea>
+                <label>진행 상세</label>
+                <textarea id="weekly-detail" placeholder="구성·작업 내용 등 상세 (선택)" ${canEditReport ? "" : "readonly class='readonly'"}>${escapeHtml(reportView.weeklyDetail || "")}</textarea>
+              </div>
+              <div class="field">
+                <label>금주 이슈</label>
+                <textarea id="weekly-issues" placeholder="막힌 점, 확인이 필요한 사항 (선택)" ${canEditReport ? "" : "readonly class='readonly'"}>${escapeHtml(reportView.weeklyIssues || "")}</textarea>
+              </div>
+              <div class="field">
+                <label>차주 계획 *</label>
+                <textarea id="task-next-plan" placeholder="한 줄에 한 항목씩 입력하세요." ${canEditReport ? "" : "readonly class='readonly'"}>${escapeHtml(reportView.nextWeekPlan || "")}</textarea>
+                <p class="helper" style="margin-top:6px">PDF 차주 확인사항 초안은 줄 단위로 만들어집니다.</p>
               </div>
               <div class="field">
                 <label>컨설턴트 피드백</label>
@@ -1047,9 +1075,10 @@
   }
 
   function modalShell(title, body, foot, wide = false) {
+    const wideClass = wide === "report" ? "modal-wide modal-report" : wide ? "modal-wide" : "";
     return `
       <div class="modal-backdrop" data-action="backdrop-close">
-        <div class="modal ${wide ? "modal-wide" : ""}" data-stop="true">
+        <div class="modal ${wideClass}" data-stop="true">
           <div class="modal-head">
             <h3>${title}</h3>
             <button class="btn ghost icon" data-action="close-modal" title="닫기">×</button>
@@ -1148,13 +1177,14 @@
       (field) => `
         <div class="field">
           <label>${escapeHtml(field.label)}</label>
-          <input id="${prefix}stat-${field.key}" value="${escapeHtml(field.numeric ? formatThousands(stats[field.key] || "") : stats[field.key] || "")}" ${ro} ${field.numeric ? 'data-action="format-stat"' : ""} />
+          <input id="${prefix}stat-${field.key}" value="${escapeHtml(field.numeric ? formatThousands(stats[field.key] || "") : stats[field.key] || "")}" ${ro} data-action="${field.numeric ? "format-stat" : "recalc-stats"}" />
         </div>
       `
     ).join("");
     return `
       <section class="task-add-panel">
         <h4>통계</h4>
+        <p class="helper" style="margin-top:-2px">빈 칸은 As-Is/To-Be 프로세스와 빈도 입력을 기준으로 BPA 성과 산식(절감·자동화율·연간 절감·FTE·개발비 참고값)으로 자동 채웁니다. 이미 입력된 값은 유지합니다.</p>
         <div class="grid stats-form-grid">${fields}</div>
       </section>
     `;
@@ -1189,8 +1219,9 @@
     `;
   }
 
-  function renderMembersFields(members, editable = true) {
+  function renderMembersFields(members, editable = true, options = {}) {
     const list = Array.isArray(members) && members.length ? members : [];
+    const midSave = Boolean(options.midSave);
     return `
       <section class="task-add-panel">
         <div class="section-title" style="margin-bottom:8px">
@@ -1198,13 +1229,232 @@
             <h4 style="margin:0">과제 참여자</h4>
             <p class="helper" style="margin:4px 0 0">접속자 정보가 기본 기입되며, 역할은 과제 리더/과제 담당자 중 선택할 수 있습니다.</p>
           </div>
-          ${editable ? '<button type="button" class="btn ghost small" data-action="add-task-member">참여자 추가</button>' : ""}
+          ${
+            editable
+              ? `<div class="section-actions">
+                  ${
+                    midSave
+                      ? '<button type="button" class="btn primary small btn-mid-save" data-action="save-task-section" data-section="members">중간 저장</button>'
+                      : ""
+                  }
+                  <button type="button" class="btn ghost small" data-action="add-task-member">참여자 추가</button>
+                </div>`
+              : ""
+          }
         </div>
         <div id="task-members" class="task-member-list">
           ${list.map((m) => renderMemberRow(m, editable)).join("")}
         </div>
       </section>
     `;
+  }
+
+  function processMethodSelectHtml(selected, editable = true) {
+    const value = selected === "ai" || selected === "manual" ? selected : "";
+    const lock = editable ? "" : "disabled class='readonly'";
+    return `
+      <select class="process-step-method" ${lock} data-action="preview-process">
+        <option value="" ${!value ? "selected" : ""}>—</option>
+        <option value="manual" ${value === "manual" ? "selected" : ""}>수작업</option>
+        <option value="ai" ${value === "ai" ? "selected" : ""}>자동화</option>
+      </select>
+    `;
+  }
+
+  function processDifficultySelectHtml(selected, editable = true) {
+    const value = normalizeDifficulty(selected);
+    const lock = editable ? "class='process-step-difficulty'" : "disabled class='readonly process-step-difficulty'";
+    return `
+      <select ${lock} data-action="preview-process">
+        <option value="상" ${value === "상" ? "selected" : ""}>상</option>
+        <option value="중" ${value === "중" ? "selected" : ""}>중</option>
+        <option value="하" ${value === "하" ? "selected" : ""}>하</option>
+      </select>
+    `;
+  }
+
+  function renderProcessStepCard(step, kind, index, total, editable = true) {
+    const minutes =
+      kind === "tobe"
+        ? step.estimated_execution_time ?? step.execution_time ?? ""
+        : step.execution_time ?? "";
+    const hours = minutesToHoursInput(minutes);
+    const ro = editable ? "" : "readonly class='readonly'";
+    return `
+      <div class="process-step-card" data-kind="${kind}" data-index="${index}">
+        <div class="process-step-card-head">
+          <span class="process-step-index">${index + 1}</span>
+          ${
+            editable
+              ? `
+            <button type="button" class="btn ghost small" data-action="move-process-step" data-dir="up" ${index === 0 ? "disabled" : ""} title="위로">↑</button>
+            <button type="button" class="btn ghost small" data-action="move-process-step" data-dir="down" ${index >= total - 1 ? "disabled" : ""} title="아래로">↓</button>
+            <button type="button" class="btn ghost small" data-action="remove-process-step">삭제</button>
+          `
+              : ""
+          }
+        </div>
+        <div class="field">
+          <label>단계명</label>
+          <input class="process-step-name" value="${escapeHtml(step.name || "")}" ${ro} data-action="preview-process" placeholder="예: 자료 수집" />
+        </div>
+        <div class="process-step-meta-grid">
+          <div class="field"><label>방식</label>${processMethodSelectHtml(step.method, editable)}</div>
+          <div class="field">
+            <label>도구</label>
+            <input class="process-step-tool" value="${escapeHtml(step.tool || "")}" ${ro} data-action="preview-process" placeholder="엑셀, RPA…" />
+          </div>
+          <div class="field">
+            <label>시간(시간)</label>
+            <input class="process-step-hours" type="number" min="0" step="0.01" value="${escapeHtml(hours)}" ${ro} data-action="preview-process" placeholder="예: 1.5" title="입력은 시간 단위이며 저장·통계는 분으로 환산됩니다." />
+          </div>
+          ${
+            kind === "tobe"
+              ? `<div class="field"><label>난이도</label>${processDifficultySelectHtml(step.difficulty, editable)}</div>`
+              : ""
+          }
+        </div>
+      </div>
+    `;
+  }
+
+  function renderProcessColumn(kind, steps, editable = true) {
+    const label = kind === "tobe" ? "To-Be" : "As-Is";
+    const listId = kind === "tobe" ? "process-tobe-list" : "process-asis-list";
+    const list = Array.isArray(steps) ? steps : [];
+    const emptyHtml = list.length
+      ? ""
+      : `<p class="helper process-empty">등록된 단계가 없습니다.${editable ? " 단계 추가를 눌러 입력하세요." : ""}</p>`;
+    return `
+      <section class="process-column" data-kind="${kind}">
+        <div class="section-title process-column-head">
+          <div>
+            <h4 style="margin:0">${label} 프로세스</h4>
+            <p class="helper" style="margin:4px 0 0">단계를 위에서 아래 순서로 실행합니다.</p>
+          </div>
+          <div class="process-column-actions">
+            ${
+              editable && kind === "tobe"
+                ? '<button type="button" class="btn ghost small" data-action="copy-asis-to-tobe">As-Is에서 가져오기</button>'
+                : ""
+            }
+            ${
+              editable
+                ? `<button type="button" class="btn ghost small" data-action="add-process-step" data-kind="${kind}">단계 추가</button>`
+                : ""
+            }
+          </div>
+        </div>
+        <div id="${listId}" class="process-step-list" data-editable="${editable ? "1" : "0"}">
+          ${emptyHtml}
+          ${list.map((step, index) => renderProcessStepCard(step, kind, index, list.length, editable)).join("")}
+        </div>
+        <details class="process-raw-details">
+          <summary>원문 보기</summary>
+          <pre class="process-raw-text" id="process-raw-${kind}">${escapeHtml(formatProcessFromSteps(list, kind))}</pre>
+        </details>
+      </section>
+    `;
+  }
+
+  function renderProcessEditor(asIsText, toBeText, editable = true, options = {}) {
+    const asIsSteps = parseProcessFromText(asIsText || "", "asis");
+    const toBeSteps = parseProcessFromText(toBeText || "", "tobe");
+    const midSave = Boolean(options.midSave);
+    return `
+      <section class="task-add-panel process-design-panel">
+        <div class="section-title process-design-head">
+          <div>
+            <h4 style="margin:0">프로세스 설계</h4>
+            <p class="helper" style="margin:4px 0 0">As-Is와 To-Be를 각각 단계 카드로 입력합니다. 시간은 <strong>시간</strong> 단위로 입력하며, 저장·통계(총 시간·절감)는 <strong>분</strong>으로 환산됩니다.</p>
+          </div>
+          ${
+            editable && midSave
+              ? '<button type="button" class="btn primary small btn-mid-save" data-action="save-task-section" data-section="process">중간 저장</button>'
+              : ""
+          }
+        </div>
+        <div class="process-editor-grid">
+          ${renderProcessColumn("asis", asIsSteps, editable)}
+          ${renderProcessColumn("tobe", toBeSteps, editable)}
+        </div>
+      </section>
+    `;
+  }
+
+  function collectProcessSteps(kind, { keepEmpty = false } = {}) {
+    const listId = kind === "tobe" ? "process-tobe-list" : "process-asis-list";
+    return [...document.querySelectorAll(`#${listId} .process-step-card`)]
+      .map((card, index) => {
+        const hours = card.querySelector(".process-step-hours")?.value.trim() || "";
+        const minutes = hoursToMinutes(hours);
+        const step = {
+          name: card.querySelector(".process-step-name")?.value.trim() || "",
+          sort_order: index + 1,
+          method: card.querySelector(".process-step-method")?.value || "",
+          tool: card.querySelector(".process-step-tool")?.value.trim() || "",
+          execution_time: minutes
+        };
+        if (kind === "tobe") {
+          step.estimated_execution_time = minutes;
+          step.difficulty = normalizeDifficulty(
+            card.querySelector(".process-step-difficulty")?.value || "중"
+          );
+        }
+        return step;
+      })
+      .filter((step) => {
+        if (keepEmpty) return true;
+        return Boolean(step.name || step.tool || step.method || step.execution_time);
+      });
+  }
+
+  function collectProcessText(kind) {
+    return formatProcessFromSteps(collectProcessSteps(kind), kind);
+  }
+
+  function syncProcessTotalsToStatistics() {
+    const asIsSteps = collectProcessSteps("asis");
+    const toBeSteps = collectProcessSteps("tobe");
+
+    ["task-", "detail-task-"].forEach((prefix) => {
+      const probe = document.getElementById(`${prefix}stat-asIsTotalTime`);
+      if (!probe && !document.getElementById(`${prefix}stat-toBeTotalTime`)) return;
+
+      const existing = {};
+      TASK_STAT_FIELDS.forEach((field) => {
+        const el = document.getElementById(`${prefix}stat-${field.key}`);
+        existing[field.key] = el?.value?.trim() || "";
+      });
+
+      const computed = computePerformanceFromProcess(asIsSteps, toBeSteps, existing);
+      TASK_STAT_FIELDS.forEach((field) => {
+        const el = document.getElementById(`${prefix}stat-${field.key}`);
+        if (!el || el.readOnly || el.disabled) return;
+        if (String(el.value || "").trim() !== "") return;
+        const next = computed[field.key];
+        if (next == null || next === "") return;
+        el.value = field.numeric ? formatThousands(String(next)) : String(next);
+      });
+    });
+  }
+
+  function remountProcessList(kind, steps) {
+    const listId = kind === "tobe" ? "process-tobe-list" : "process-asis-list";
+    const list = document.getElementById(listId);
+    if (!list) return;
+    const editable = list.dataset.editable !== "0";
+    const next = Array.isArray(steps) ? steps : [];
+    if (!next.length) {
+      list.innerHTML = `<p class="helper process-empty">등록된 단계가 없습니다.${
+        editable ? " 단계 추가를 눌러 입력하세요." : ""
+      }</p>`;
+    } else {
+      list.innerHTML = next
+        .map((step, index) => renderProcessStepCard(step, kind, index, next.length, editable))
+        .join("");
+    }
+    refreshProcessPreview();
   }
 
   function collectHierarchy(prefix) {
@@ -1243,6 +1493,85 @@
       .filter((m) => m.name);
   }
 
+  function taskFormPrefix() {
+    return state.modal === "addTask" ? "task-" : "detail-task-";
+  }
+
+  function resolveTaskSectionContext() {
+    if (state.modal === "addTask") {
+      const company = state.companies.find((c) => c.id === state.form.companyId) || currentCompany();
+      const participant =
+        company?.participants?.find((p) => p.id === state.form.participantId) || currentParticipant();
+      return { mode: "add", company, participant };
+    }
+    return {
+      mode: "detail",
+      company: currentCompany(),
+      participant: currentParticipant()
+    };
+  }
+
+  function applyTaskBasicsFromDom(task, prefix) {
+    const nameId = prefix === "task-" ? "task-name" : `${prefix}name`;
+    const startId = prefix === "task-" ? "task-start" : `${prefix}start`;
+    const endId = prefix === "task-" ? "task-end" : `${prefix}end`;
+    const goalId = prefix === "task-" ? "task-goal" : `${prefix}goal`;
+    const diffId = prefix === "task-" ? "task-difficulty" : `${prefix}difficulty`;
+    const workId = prefix === "task-" ? "task-work-status" : `${prefix}work-status`;
+    const name = document.getElementById(nameId)?.value.trim() || "";
+    if (!name) return { ok: false, message: "과제명을 입력해 주세요." };
+    task.name = name;
+    task.startDate = document.getElementById(startId)?.value || "";
+    task.endDate = document.getElementById(endId)?.value || "";
+    task.goal = document.getElementById(goalId)?.value || "";
+    task.difficulty = normalizeDifficulty(document.getElementById(diffId)?.value || task.difficulty || "중");
+    task.workStatus = normalizeWorkStatus(document.getElementById(workId)?.value || task.workStatus || "개발");
+    return { ok: true };
+  }
+
+  function ensureEditableTaskForSection(ctx) {
+    if (!ctx.participant) return null;
+    if (ctx.mode === "detail") {
+      return ctx.participant.tasks.find((t) => t.id === state.form.taskId) || currentTask() || null;
+    }
+    let task = ctx.participant.tasks.find((t) => t.id === state.form.draftTaskId);
+    if (task) return task;
+    const name = document.getElementById("task-name")?.value.trim() || "";
+    if (!name) {
+      toast("과제명을 먼저 입력해 주세요.");
+      return null;
+    }
+    task = ensureTaskFields({
+      id: uid("t"),
+      name,
+      progress: 0,
+      startDate: document.getElementById("task-start")?.value || "",
+      endDate: document.getElementById("task-end")?.value || "",
+      goal: document.getElementById("task-goal")?.value || "",
+      asIsProcess: "",
+      toBeProcess: "",
+      difficulty: normalizeDifficulty(document.getElementById("task-difficulty")?.value || "중"),
+      hierarchy: emptyHierarchy(),
+      statistics: emptyStatistics(),
+      members: collectTaskMembers().length
+        ? collectTaskMembers()
+        : defaultTaskMembers(ctx.participant),
+      weeklySummary: "",
+      weeklyDetail: "",
+      weeklyIssues: "",
+      nextWeekPlan: "",
+      instructorFeedback: "",
+      workStatus: document.getElementById("task-work-status")?.value || "개발",
+      reportCompleted: false
+    });
+    ctx.participant.tasks.push(task);
+    state.form.draftTaskId = task.id;
+    state.selectedCompanyId = ctx.company?.id || state.selectedCompanyId;
+    state.selectedParticipantId = ctx.participant.id;
+    state.selectedTaskId = task.id;
+    return task;
+  }
+
   function renderAddTaskModal() {
     const participant = state.form.participantId
       ? allParticipants().find((r) => r.participant.id === state.form.participantId)?.participant
@@ -1252,32 +1581,35 @@
     return modalShell(
       "과제 추가",
       `
-      <p class="helper" style="margin-top:0">${escapeHtml(participant?.name || "선택 참여자")}에게 과제를 등록합니다. CSV 업로드로 자동기입하거나 직접 입력할 수 있습니다.</p>
-      <div class="task-add-layout">
-        <section class="task-add-panel">
-          <h4>기본 정보</h4>
-          <div class="field"><label>과제명 *</label><input id="task-name" placeholder="예: 데이터 품질 점검" value="${escapeHtml(draft.name || "")}" /></div>
-          <div class="grid" style="grid-template-columns:1fr 1fr">
-            <div class="field"><label>시작일</label><input id="task-start" type="date" value="${escapeHtml(draft.startDate || "")}" /></div>
-            <div class="field"><label>완료일</label><input id="task-end" type="date" value="${escapeHtml(draft.endDate || "")}" /></div>
+      <p class="helper" style="margin-top:0">${escapeHtml(participant?.name || "선택 참여자")}에게 과제를 등록합니다. CSV 업로드로 자동기입하거나 직접 입력할 수 있습니다. 섹션별 중간 저장 시 서버에 초안이 반영됩니다.</p>
+      <section class="task-add-panel">
+        <div class="section-title" style="margin-bottom:8px">
+          <div>
+            <h4 style="margin:0">기본 정보</h4>
+            <p class="helper" style="margin:4px 0 0">과제명·일정·목표를 수정한 뒤 중간 저장할 수 있습니다.</p>
           </div>
-          <div class="field"><label>과제 목표</label><textarea id="task-goal" placeholder="달성하려는 과제 목표">${escapeHtml(draft.goal || "")}</textarea></div>
+          <button type="button" class="btn primary small btn-mid-save" data-action="save-task-section" data-section="basics">중간 저장</button>
+        </div>
+        <div class="field"><label>과제명 *</label><input id="task-name" placeholder="예: 데이터 품질 점검" value="${escapeHtml(draft.name || "")}" /></div>
+        <div class="grid" style="grid-template-columns:1fr 1fr">
+          <div class="field"><label>시작일</label><input id="task-start" type="date" value="${escapeHtml(draft.startDate || "")}" /></div>
+          <div class="field"><label>완료일</label><input id="task-end" type="date" value="${escapeHtml(draft.endDate || "")}" /></div>
+        </div>
+        <div class="field"><label>과제 목표</label><textarea id="task-goal" placeholder="달성하려는 과제 목표">${escapeHtml(draft.goal || "")}</textarea></div>
+        <div class="grid" style="grid-template-columns:1fr 1fr">
           <div class="field difficulty-field"><label>난이도</label>${difficultySelectHtml("task-difficulty", draft.difficulty || "중")}</div>
-        </section>
-        <section class="task-add-panel process-design-panel">
-          <h4>프로세스 설계</h4>
-          <div class="field"><label>As-Is 프로세스</label><textarea id="task-asis" data-action="preview-process" placeholder="예: 단계A [수작업｜문서｜120분] > 단계B [수작업｜엑셀｜60분]">${escapeHtml(draft.asIsProcess || "")}</textarea></div>
-          <div class="field"><label>To-Be 프로세스</label><textarea id="task-tobe" data-action="preview-process" placeholder="예: 단계A [자동화｜RPA｜30분｜난이도 중] > 단계B [자동화｜LLM｜15분｜난이도 하]">${escapeHtml(draft.toBeProcess || "")}</textarea></div>
-          <p class="helper" style="margin-top:-6px">프로세스는 <strong>&gt;</strong> 로 단계를 구분합니다. To-Be는 대괄호 안에 <strong>난이도 상/중/하</strong>를 함께 입력할 수 있습니다.</p>
-        </section>
-      </div>
+          <div class="field difficulty-field"><label>작업 상태</label>${workStatusSelectHtml("task-work-status", draft.workStatus || "개발")}</div>
+        </div>
+      </section>
+      ${renderProcessEditor(draft.asIsProcess || "", draft.toBeProcess || "", true, { midSave: true })}
       ${renderHierarchyFields("task-", draft.hierarchy, true)}
       ${renderStatisticsFields("task-", draft.statistics, true)}
-      ${renderMembersFields(members, true)}
+      ${renderMembersFields(members, true, { midSave: true })}
       <div class="process-flow-stack">
-        <div id="task-asis-flow">${renderProcessFlow("As-Is (세로 흐름)", draft.asIsProcess || "", "vertical")}</div>
-        <div id="task-tobe-flow">${renderProcessFlow("To-Be (세로 흐름)", draft.toBeProcess || "", "vertical")}</div>
+        <div id="task-asis-flow">${renderProcessFlow("As-Is (세로 흐름)", draft.asIsProcess || "", "vertical", "asis")}</div>
+        <div id="task-tobe-flow">${renderProcessFlow("To-Be (세로 흐름)", draft.toBeProcess || "", "vertical", "tobe")}</div>
       </div>
+      <p class="helper">중간 저장은 즉시 서버에 반영됩니다. 로그아웃 후 다시 들어가면 직전 저장 초안을 과제 상세에서 확인할 수 있습니다.</p>
       <div class="task-import-layout">
         <div class="field task-import-card">
           <label>CSV 업로드 (선택)</label>
@@ -1296,16 +1628,17 @@
   }
 
   function refreshProcessPreview() {
-    const asIs = document.getElementById("task-asis")?.value
-      || document.getElementById("detail-task-asis")?.value
-      || "";
-    const toBe = document.getElementById("task-tobe")?.value
-      || document.getElementById("detail-task-tobe")?.value
-      || "";
+    const asIsSteps = collectProcessSteps("asis", { keepEmpty: true });
+    const toBeSteps = collectProcessSteps("tobe", { keepEmpty: true });
     const asIsFlow = document.getElementById("task-asis-flow");
     const toBeFlow = document.getElementById("task-tobe-flow");
-    if (asIsFlow) asIsFlow.innerHTML = renderProcessFlow("As-Is (세로 흐름)", asIs, "vertical");
-    if (toBeFlow) toBeFlow.innerHTML = renderProcessFlow("To-Be (세로 흐름)", toBe, "vertical");
+    if (asIsFlow) asIsFlow.innerHTML = renderProcessFlow("As-Is (세로 흐름)", asIsSteps, "vertical", "asis");
+    if (toBeFlow) toBeFlow.innerHTML = renderProcessFlow("To-Be (세로 흐름)", toBeSteps, "vertical", "tobe");
+    const rawAsis = document.getElementById("process-raw-asis");
+    const rawTobe = document.getElementById("process-raw-tobe");
+    if (rawAsis) rawAsis.textContent = formatProcessFromSteps(collectProcessSteps("asis"), "asis");
+    if (rawTobe) rawTobe.textContent = formatProcessFromSteps(collectProcessSteps("tobe"), "tobe");
+    syncProcessTotalsToStatistics();
   }
 
   function applyTaskDraftToInputs(draft) {
@@ -1314,9 +1647,7 @@
       ["task-name", "name"],
       ["task-start", "startDate"],
       ["task-end", "endDate"],
-      ["task-goal", "goal"],
-      ["task-asis", "asIsProcess"],
-      ["task-tobe", "toBeProcess"]
+      ["task-goal", "goal"]
     ];
     mapping.forEach(([id, key]) => {
       const input = document.getElementById(id);
@@ -1328,6 +1659,8 @@
 
     const diffSelect = document.getElementById("task-difficulty");
     if (diffSelect) diffSelect.value = normalizeDifficulty(draft.difficulty);
+    const workSelect = document.getElementById("task-work-status");
+    if (workSelect) workSelect.value = normalizeWorkStatus(draft.workStatus);
 
     const hierarchy = normalizeHierarchy(draft.hierarchy);
     ["l1", "l2", "l3", "l4"].forEach((key) => {
@@ -1349,6 +1682,13 @@
         : currentParticipant();
       const members = mergeTaskMembers(defaultTaskMembers(participant), draft.members);
       list.innerHTML = members.map((m) => renderMemberRow(m, true)).join("");
+    }
+
+    if (draft.asIsProcess != null) {
+      remountProcessList("asis", parseProcessFromText(draft.asIsProcess, "asis"));
+    }
+    if (draft.toBeProcess != null) {
+      remountProcessList("tobe", parseProcessFromText(draft.toBeProcess, "tobe"));
     }
     refreshProcessPreview();
   }
@@ -1443,35 +1783,42 @@
     return modalShell(
       "과제 상세",
       `
-      <div class="task-add-layout">
-        <section class="task-add-panel">
-          <h4>기본 정보</h4>
-          <div class="field"><label>과제명</label><input id="detail-task-name" value="${escapeHtml(task.name)}" ${editable ? "" : "readonly class='readonly'"} /></div>
-          <div class="grid" style="grid-template-columns:1fr 1fr">
-            <div class="field"><label>시작일</label><input id="detail-task-start" type="date" value="${escapeHtml(task.startDate || "")}" ${editable ? "" : "readonly class='readonly'"} /></div>
-            <div class="field"><label>완료일</label><input id="detail-task-end" type="date" value="${escapeHtml(task.endDate || "")}" ${editable ? "" : "readonly class='readonly'"} /></div>
+      <section class="task-add-panel">
+        <div class="section-title" style="margin-bottom:8px">
+          <div>
+            <h4 style="margin:0">기본 정보</h4>
+            <p class="helper" style="margin:4px 0 0">과제명·일정·목표를 수정한 뒤 중간 저장할 수 있습니다.</p>
           </div>
-          <div class="field"><label>과제 목표</label><textarea id="detail-task-goal" ${editable ? "" : "readonly class='readonly'"}>${escapeHtml(task.goal || "")}</textarea></div>
+          ${
+            editable
+              ? '<button type="button" class="btn primary small btn-mid-save" data-action="save-task-section" data-section="basics">중간 저장</button>'
+              : ""
+          }
+        </div>
+        <div class="field"><label>과제명</label><input id="detail-task-name" value="${escapeHtml(task.name)}" ${editable ? "" : "readonly class='readonly'"} /></div>
+        <div class="grid" style="grid-template-columns:1fr 1fr">
+          <div class="field"><label>시작일</label><input id="detail-task-start" type="date" value="${escapeHtml(task.startDate || "")}" ${editable ? "" : "readonly class='readonly'"} /></div>
+          <div class="field"><label>완료일</label><input id="detail-task-end" type="date" value="${escapeHtml(task.endDate || "")}" ${editable ? "" : "readonly class='readonly'"} /></div>
+        </div>
+        <div class="field"><label>과제 목표</label><textarea id="detail-task-goal" ${editable ? "" : "readonly class='readonly'"}>${escapeHtml(task.goal || "")}</textarea></div>
+        <div class="grid" style="grid-template-columns:1fr 1fr">
           <div class="field difficulty-field"><label>난이도</label>${difficultySelectHtml("detail-task-difficulty", task.difficulty, !editable)}</div>
-        </section>
-        <section class="task-add-panel process-design-panel">
-          <h4>프로세스 설계</h4>
-          <div class="field"><label>As-Is 프로세스</label><textarea id="detail-task-asis" data-action="preview-process" ${editable ? "" : "readonly class='readonly'"} placeholder="단계A [수작업｜문서｜120분] > 단계B [수작업｜엑셀｜60분]">${escapeHtml(task.asIsProcess || "")}</textarea></div>
-          <div class="field"><label>To-Be 프로세스</label><textarea id="detail-task-tobe" data-action="preview-process" ${editable ? "" : "readonly class='readonly'"} placeholder="단계A [자동화｜RPA｜30분｜난이도 중] > 단계B [자동화｜LLM｜15분｜난이도 하]">${escapeHtml(task.toBeProcess || "")}</textarea></div>
-        </section>
-      </div>
+          <div class="field difficulty-field"><label>작업 상태</label>${workStatusSelectHtml("detail-task-work-status", task.workStatus || "개발", !editable)}</div>
+        </div>
+      </section>
+      ${renderProcessEditor(task.asIsProcess || "", task.toBeProcess || "", editable, { midSave: true })}
       ${renderHierarchyFields("detail-task-", task.hierarchy, editable)}
       ${renderStatisticsFields("detail-task-", task.statistics, editable)}
-      ${renderMembersFields(members, editable)}
+      ${renderMembersFields(members, editable, { midSave: true })}
       <div class="process-flow-stack">
-        <div id="task-asis-flow">${renderProcessFlow("As-Is (세로 흐름)", task.asIsProcess, "vertical")}</div>
-        <div id="task-tobe-flow">${renderProcessFlow("To-Be (세로 흐름)", task.toBeProcess, "vertical")}</div>
+        <div id="task-asis-flow">${renderProcessFlow("As-Is (세로 흐름)", task.asIsProcess, "vertical", "asis")}</div>
+        <div id="task-tobe-flow">${renderProcessFlow("To-Be (세로 흐름)", task.toBeProcess, "vertical", "tobe")}</div>
       </div>
-      <p class="helper">흐름 차트는 <strong>&gt;</strong> 기준으로 노드를 나눕니다. To-Be 단계는 <strong>난이도 상/중/하</strong>를 포함할 수 있습니다.</p>
+      <p class="helper">섹션별 중간 저장은 즉시 서버에 반영됩니다. 로그아웃 후 다시 들어가면 직전 저장 내용이 불러와집니다.</p>
     `,
       `
       <button class="btn ghost" data-action="close-modal">닫기</button>
-      ${editable ? '<button class="btn primary" data-action="save-task-detail">저장</button>' : ""}
+      ${editable ? '<button class="btn primary" data-action="save-task-detail">전체 저장</button>' : ""}
     `,
       true
     );
@@ -1479,172 +1826,56 @@
 
   function renderReportModal() {
     const company = currentCompany();
-    const week = getConsultingWeek(company?.schedule?.startDate);
-    const overallProgressAvg = companyAvg(company);
-    const scheduleGoalAvg = companyAchievementAvg(company);
-    const participantCount = company.participants.length;
-    const taskCount = company.participants.reduce((sum, p) => sum + p.tasks.length, 0);
-    const taskRows = taskRowsForCompany(company);
-
-    return modalShell(
-      "주간 레포트 PDF 발행",
-      `
-      <div class="grid" style="grid-template-columns: 1fr 1fr">
-        <div class="field">
-          <label>컨설팅 주차</label>
-          <input value="${week}주차 (시작일 ${company.schedule?.startDate || "-"} 기준)" readonly class="readonly" />
-        </div>
-        <div class="field">
-          <label>협력사</label>
-          <input value="${escapeHtml(company.name)}" readonly class="readonly" />
-        </div>
-      </div>
-      <div class="field">
-        <label>주요 전달 내용</label>
-        <textarea id="report-note" placeholder="이번 주 주요 전달 내용을 입력하세요">이번 주는 과제 진척도와 요약 누락 여부를 중심으로 점검했습니다.</textarea>
-      </div>
-      <div class="section-title">
-        <div>
-          <h3>발행 미리보기</h3>
-          <p>PDF에 협력사 운영 요약과 과제별 진척 현황이 포함됩니다.</p>
-        </div>
-      </div>
-      <div class="report-preview">
-        <div class="report-person">
-          <strong>협력사 운영 요약</strong>
-          <p class="helper">전체 진척도 ${overallProgressAvg}% · 일정 목표 달성율 ${scheduleGoalAvg ?? 0}% · 총 참여자 ${participantCount}명 · 총 과제 ${taskCount}건</p>
-        </div>
-        <div class="report-person">
-          <strong>과제별 진척 현황</strong>
-          ${
-            taskRows.length
-              ? taskRows
-                  .map(({ participant, task }) => {
-                    const sched = scheduleStatus(company, participant);
-                    const t = ensureTaskFields(task);
-                    return `<p class="helper" style="margin:6px 0">${escapeHtml(t?.name || "과제 없음")} · ${escapeHtml(participant.name)} · 진척 ${t ? t.progress : 0}% · ${sched.label}</p>`;
-                  })
-                  .join("")
-              : '<p class="helper">등록된 과제가 없습니다.</p>'
-          }
-        </div>
-      </div>
-    `,
-      `
-      <button class="btn ghost" data-action="close-modal">취소</button>
-      <button class="btn primary" data-action="publish-report">PDF 발행</button>
-    `
-    );
-  }
-
-  function buildWeeklyReportDocument(company, note) {
-    const week = getConsultingWeek(company?.schedule?.startDate);
-    const overallProgressAvg = companyAvg(company);
-    const scheduleGoalAvg = companyAchievementAvg(company);
-    const participantCount = company.participants.length;
-    const taskCount = company.participants.reduce((sum, p) => sum + p.tasks.length, 0);
-    const taskRows = taskRowsForCompany(company);
-    const issuedAt = formatDateTime(new Date().toISOString());
-
-    const taskRowsHtml = taskRows.length
-      ? taskRows
-          .map(({ participant, task }) => {
-            const sched = scheduleStatus(company, participant);
-            const t = ensureTaskFields(task);
-            return `
-              <tr>
-                <td>${escapeHtml(t?.name || "과제 없음")}</td>
-                <td>${escapeHtml(participant.name)}</td>
-                <td>${escapeHtml(participant.dept || "-")}</td>
-                <td>${t ? Number(t.progress || 0) : 0}%</td>
-                <td>${escapeHtml(sched.label)}</td>
-                <td>${t?.reportCompleted ? "작성완료" : "미작성"}</td>
-              </tr>
-            `;
-          })
-          .join("")
-      : `<tr><td colspan="6">등록된 과제가 없습니다.</td></tr>`;
-
-    return `
-      <div class="pdf-report" style="font-family: 'Malgun Gothic', 'Noto Sans KR', Arial, sans-serif; color:#1a1a2e; padding:24px; width:720px;">
-        <h1 style="margin:0 0 6px; font-size:22px;">AI 프로젝트 주간 레포트</h1>
-        <p style="margin:0 0 18px; color:#6b7280; font-size:12px;">발행 시각: ${issuedAt}</p>
-
-        <section style="margin-bottom:18px; padding:14px; border:1px solid #e0e6f0; border-radius:8px;">
-          <h2 style="margin:0 0 10px; font-size:16px;">기본 정보</h2>
-          <p style="margin:4px 0;"><b>컨설팅 주차</b>: ${week}주차</p>
-          <p style="margin:4px 0;"><b>협력사</b>: ${escapeHtml(company.name)}</p>
-          <p style="margin:4px 0;"><b>프로젝트 시작일</b>: ${escapeHtml(company.schedule?.startDate || "-")}</p>
-        </section>
-
-        <section style="margin-bottom:18px; padding:14px; border:1px solid #e0e6f0; border-radius:8px;">
-          <h2 style="margin:0 0 10px; font-size:16px;">주요 전달 내용</h2>
-          <p style="margin:0; white-space:pre-wrap; line-height:1.6;">${escapeHtml(note || "-")}</p>
-        </section>
-
-        <section style="margin-bottom:18px; padding:14px; border:1px solid #e0e6f0; border-radius:8px;">
-          <h2 style="margin:0 0 10px; font-size:16px;">협력사 운영 요약</h2>
-          <table style="width:100%; border-collapse:collapse; font-size:13px;">
-            <tr>
-              <td style="padding:8px; border:1px solid #e0e6f0;"><b>전체 진척도</b><br />${overallProgressAvg}%</td>
-              <td style="padding:8px; border:1px solid #e0e6f0;"><b>일정 목표 달성율</b><br />${scheduleGoalAvg ?? 0}%</td>
-              <td style="padding:8px; border:1px solid #e0e6f0;"><b>총 참여자</b><br />${participantCount}명</td>
-              <td style="padding:8px; border:1px solid #e0e6f0;"><b>총 과제</b><br />${taskCount}건</td>
-            </tr>
-          </table>
-        </section>
-
-        <section style="padding:14px; border:1px solid #e0e6f0; border-radius:8px;">
-          <h2 style="margin:0 0 10px; font-size:16px;">과제별 진척 현황</h2>
-          <table style="width:100%; border-collapse:collapse; font-size:12px;">
-            <thead>
-              <tr style="background:#f8f9fc;">
-                <th style="padding:8px; border:1px solid #e0e6f0; text-align:left;">과제명</th>
-                <th style="padding:8px; border:1px solid #e0e6f0; text-align:left;">참여자</th>
-                <th style="padding:8px; border:1px solid #e0e6f0; text-align:left;">부서</th>
-                <th style="padding:8px; border:1px solid #e0e6f0; text-align:left;">진척도</th>
-                <th style="padding:8px; border:1px solid #e0e6f0; text-align:left;">일정 상태</th>
-                <th style="padding:8px; border:1px solid #e0e6f0; text-align:left;">주간보고</th>
-              </tr>
-            </thead>
-            <tbody>${taskRowsHtml}</tbody>
-          </table>
-        </section>
-      </div>
-    `;
-  }
-
-  async function downloadWeeklyReportPdf(company, note) {
-    const filename = `주간레포트_${company.name}_${getConsultingWeek(company?.schedule?.startDate)}주차.pdf`.replace(
-      /[\\/:*?"<>|]/g,
-      "_"
-    );
-    const wrapper = document.createElement("div");
-    wrapper.style.position = "fixed";
-    wrapper.style.left = "-9999px";
-    wrapper.style.top = "0";
-    wrapper.innerHTML = buildWeeklyReportDocument(company, note);
-    document.body.appendChild(wrapper);
-    const element = wrapper.querySelector(".pdf-report");
-
-    try {
-      if (typeof html2pdf === "undefined") {
-        throw new Error("PDF 라이브러리를 불러오지 못했습니다.");
-      }
-      await html2pdf()
-        .set({
-          margin: [10, 10, 10, 10],
-          filename,
-          image: { type: "jpeg", quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true },
-          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
-        })
-        .from(element)
-        .save();
-      return filename;
-    } finally {
-      wrapper.remove();
+    const doc = state.form.reportDoc;
+    if (!company) {
+      return modalShell("주간 레포트", '<div class="empty">협력사를 선택해 주세요.</div>', `<button class="btn primary" data-action="close-modal">닫기</button>`);
     }
+    if (!doc) {
+      return modalShell(
+        "주간 레포트 작성",
+        '<div class="empty">레포트 초안을 불러오는 중입니다...</div>',
+        `<button class="btn ghost" data-action="close-modal">취소</button>`,
+        "report"
+      );
+    }
+    const published = doc.status === "published" && !state.form.reportRevising;
+    const foot = published
+      ? `
+        <button class="btn ghost" data-action="close-modal">닫기</button>
+        <button class="btn ghost" data-action="revise-report">개정 초안</button>
+        <button class="btn primary" data-action="reprint-report">PDF 재출력</button>
+      `
+      : `
+        <button class="btn ghost" data-action="close-modal">취소</button>
+        <button class="btn ghost" data-action="assemble-report">빈 항목 다시 가져오기</button>
+        <button class="btn ghost" data-action="save-report-draft">초안 저장</button>
+        <button class="btn primary" data-action="publish-report">PDF 발행</button>
+      `;
+    return modalShell(
+      `${escapeHtml(company.name)} 주간 레포트`,
+      renderWeeklyReportEditorHtml(doc, {
+        currentWeek: state.form.reportCurrentWeek || currentWeekNumber(company),
+        revising: Boolean(state.form.reportRevising)
+      }),
+      foot,
+      "report"
+    );
+  }
+
+  async function loadCompanyWeeklyReport(weekNumber) {
+    const company = currentCompany();
+    if (!company) return null;
+    const week = Number(weekNumber || currentWeekNumber(company));
+    const result = await API.getCompanyWeeklyReport(company.id, week);
+    state.form.reportDoc = result.report;
+    state.form.reportDoc.saved = result.saved;
+    state.form.reportCurrentWeek = result.currentWeek || currentWeekNumber(company);
+    state.form.reportRevising = false;
+    return result.report;
+  }
+
+  function currentReportFilename(company, doc) {
+    return `주간레포트_${company?.name || "협력사"}_${doc?.weekNumber || ""}주차.pdf`.replace(/[\\/:*?"<>|]/g, "_");
   }
 
   function render() {
@@ -1654,18 +1885,28 @@
     }
     if (!state.auth) renderLogin();
     else renderShell();
+    if (document.getElementById("process-asis-list") || document.getElementById("process-tobe-list")) {
+      refreshProcessPreview();
+    }
+  }
+
+  async function reloadDashboardData() {
+    const data = await API.getDashboard();
+    state.companies = (data.companies || []).map((c) => ensureCompanyFields(c));
+    state.companies.forEach((c) =>
+      c.participants.forEach((p) => p.tasks.forEach((t) => ensureTaskFields(t)))
+    );
+    state.meta = data.meta || {};
+    state.lastLocalSaveAt = state.meta.lastSavedAt || null;
+    return data;
   }
 
   async function bootstrap() {
     try {
-      const data = await API.getDashboard();
-      state.companies = (data.companies || []).map((c) => ensureCompanyFields(c));
-      state.companies.forEach((c) => c.participants.forEach((p) => p.tasks.forEach((t) => ensureTaskFields(t))));
-      state.meta = data.meta || {};
+      await reloadDashboardData();
       state.selectedCompanyId = state.companies[0]?.id || null;
       state.selectedParticipantId = state.companies[0]?.participants[0]?.id || null;
       state.selectedTaskId = state.companies[0]?.participants[0]?.tasks[0]?.id || null;
-      state.lastLocalSaveAt = state.meta.lastSavedAt || null;
       state.loading = false;
       render();
     } catch (err) {
@@ -1690,6 +1931,7 @@
       const password = document.getElementById("admin-password").value;
       try {
         const auth = await API.adminLogin(password);
+        await reloadDashboardData();
         state.auth = auth;
         state.view = "admin";
         toast("관리자 모드로 로그인했습니다.");
@@ -1705,6 +1947,7 @@
       const email = document.getElementById("login-email").value.trim().toLowerCase();
       try {
         const auth = await API.participantLogin({ companyId, name, email });
+        await reloadDashboardData();
         state.auth = auth;
         state.selectedCompanyId = auth.companyId;
         state.selectedParticipantId = auth.participantId;
@@ -1728,9 +1971,7 @@
       const dept = document.getElementById("login-dept").value.trim();
       try {
         const auth = await API.participantRegister({ companyId, name, email, dept });
-        const refreshed = await API.getDashboard();
-        state.companies = refreshed.companies;
-        state.meta = refreshed.meta || {};
+        await reloadDashboardData();
         state.auth = auth;
         state.selectedCompanyId = auth.companyId;
         state.selectedParticipantId = auth.participantId;
@@ -1765,10 +2006,79 @@
       row.remove();
     }
 
+    if (action === "add-process-step") {
+      const kind = el.dataset.kind === "tobe" ? "tobe" : "asis";
+      const steps = collectProcessSteps(kind, { keepEmpty: true });
+      steps.push(emptyProcessStep(kind, steps.length + 1));
+      remountProcessList(kind, steps);
+    }
+
+    if (action === "remove-process-step") {
+      const card = el.closest(".process-step-card");
+      if (!card) return;
+      const kind = card.dataset.kind === "tobe" ? "tobe" : "asis";
+      const index = Number(card.dataset.index);
+      const steps = collectProcessSteps(kind, { keepEmpty: true });
+      if (!Number.isFinite(index) || index < 0 || index >= steps.length) return;
+      steps.splice(index, 1);
+      remountProcessList(kind, steps);
+    }
+
+    if (action === "move-process-step") {
+      const card = el.closest(".process-step-card");
+      if (!card) return;
+      const kind = card.dataset.kind === "tobe" ? "tobe" : "asis";
+      const index = Number(card.dataset.index);
+      const steps = collectProcessSteps(kind, { keepEmpty: true });
+      const nextIndex = el.dataset.dir === "up" ? index - 1 : index + 1;
+      if (!Number.isFinite(index) || nextIndex < 0 || nextIndex >= steps.length) return;
+      const tmp = steps[index];
+      steps[index] = steps[nextIndex];
+      steps[nextIndex] = tmp;
+      remountProcessList(kind, steps);
+    }
+
+    if (action === "copy-asis-to-tobe") {
+      const asIs = collectProcessSteps("asis", { keepEmpty: true });
+      const toBe = collectProcessSteps("tobe", { keepEmpty: true });
+      const toBeHasContent = toBe.some(
+        (step) => step.name || step.tool || step.method || step.execution_time
+      );
+      if (
+        toBeHasContent &&
+        !window.confirm("To-Be에 이미 내용이 있습니다. As-Is로 덮어쓸까요?")
+      ) {
+        return;
+      }
+      const copied = asIs
+        .filter((step) => step.name || step.tool || step.method || step.execution_time)
+        .map((step, index) => ({
+          ...emptyProcessStep("tobe", index + 1),
+          name: step.name,
+          method: step.method,
+          tool: step.tool,
+          execution_time: step.execution_time,
+          estimated_execution_time: step.execution_time,
+          difficulty: "중"
+        }));
+      remountProcessList("tobe", copied);
+    }
+
     if (action === "nav") setView(el.dataset.view);
     if (action === "open-add-company") openModal("addCompany");
     if (action === "open-add-participant") openModal("addParticipant");
-    if (action === "open-report") openModal("report");
+    if (action === "open-report") {
+      if (!isAdmin()) return toast("관리자만 레포트를 발행할 수 있습니다.");
+      const company = currentCompany();
+      if (!company) return toast("협력사를 선택해 주세요.");
+      openModal("report", { reportDoc: null, reportRevising: false });
+      try {
+        await loadCompanyWeeklyReport(currentWeekNumber(company));
+        render();
+      } catch (err) {
+        toast(err.message || "레포트 초안을 불러오지 못했습니다.");
+      }
+    }
     if (action === "close-modal") closeModal();
     if (action === "backdrop-close") {
       if (event.target === el) closeModal();
@@ -1781,6 +2091,7 @@
       }
       state.form.csvTasks = null;
       state.form.taskDraft = {};
+      state.form.draftTaskId = null;
       state.form.taskMembers = defaultTaskMembers(target);
       openModal("addTask", { companyId: el.dataset.company, participantId: el.dataset.participant });
     }
@@ -1945,23 +2256,115 @@
     if (action === "publish-report") {
       const company = currentCompany();
       if (!company) return toast("협력사를 선택해 주세요.");
-      const note = document.getElementById("report-note")?.value || "";
+      if (!isAdmin()) return toast("관리자만 레포트를 발행할 수 있습니다.");
+      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
+      if (!doc) return toast("레포트 초안이 없습니다.");
       try {
-        const filename = await downloadWeeklyReportPdf(company, note);
-        try {
-          const result = await API.publishReport({
-            companyId: company.id,
-            note
-          });
-          state.meta.lastReportRequestAt = result.requestedAt;
-        } catch {
-          /* PDF 다운로드는 성공했으므로 메타 기록 실패는 무시 */
-        }
+        const result = await API.publishCompanyWeeklyReport(company.id, doc.weekNumber, doc);
+        state.form.reportDoc = result.report;
+        state.form.reportRevising = false;
+        state.meta.lastReportRequestAt = result.requestedAt;
+        const filename = await downloadWeeklyReportPdf(result.report, currentReportFilename(company, result.report));
         closeModal();
         toast(`PDF 레포트를 발행했습니다. (${filename})`);
       } catch (err) {
         toast(err.message || "PDF 발행에 실패했습니다.");
       }
+    }
+
+    if (action === "save-report-draft") {
+      const company = currentCompany();
+      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
+      if (!company || !doc) return toast("레포트 초안이 없습니다.");
+      try {
+        const result = await API.saveCompanyWeeklyReport(company.id, doc.weekNumber, doc);
+        state.form.reportDoc = result.report;
+        state.form.reportDoc.saved = true;
+        render();
+        toast("초안을 저장했습니다.");
+      } catch (err) {
+        toast(err.message || "초안 저장에 실패했습니다.");
+      }
+    }
+
+    if (action === "assemble-report") {
+      const company = currentCompany();
+      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
+      if (!company || !doc) return toast("레포트 초안이 없습니다.");
+      try {
+        const result = await API.assembleCompanyWeeklyReport(company.id, doc.weekNumber, doc);
+        state.form.reportDoc = result.report;
+        state.form.reportRevising = true;
+        render();
+        toast("비어 있는 항목만 과제 주간보고에서 다시 채웠습니다.");
+      } catch (err) {
+        toast(err.message || "초안 재조립에 실패했습니다.");
+      }
+    }
+
+    if (action === "reprint-report") {
+      const company = currentCompany();
+      const doc = state.form.reportDoc;
+      if (!company || !doc) return toast("레포트가 없습니다.");
+      try {
+        const filename = await downloadWeeklyReportPdf(doc, currentReportFilename(company, doc));
+        toast(`PDF를 다시 저장했습니다. (${filename})`);
+      } catch (err) {
+        toast(err.message || "PDF 재출력에 실패했습니다.");
+      }
+    }
+
+    if (action === "revise-report") {
+      if (!state.form.reportDoc) return;
+      state.form.reportRevising = true;
+      state.form.reportDoc.status = "draft";
+      render();
+      toast("개정 초안 모드입니다. 수정 후 다시 발행하세요.");
+    }
+
+    if (action === "report-add-summary") {
+      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
+      doc.body.summaryRows = doc.body.summaryRows || [];
+      doc.body.summaryRows.push({ taskId: "", deliverable: "", owner: "", status: "개발", progressNote: "" });
+      render();
+    }
+    if (action === "report-remove-summary") {
+      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
+      doc.body.summaryRows.splice(Number(el.dataset.index), 1);
+      render();
+    }
+    if (action === "report-add-section") {
+      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
+      doc.body.sections = doc.body.sections || [];
+      doc.body.sections.push(emptyEditorSection());
+      render();
+    }
+    if (action === "report-remove-section") {
+      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
+      doc.body.sections.splice(Number(el.dataset.index), 1);
+      render();
+    }
+    if (action === "report-add-issue") {
+      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
+      doc.body.issues = doc.body.issues || [];
+      doc.body.issues.push({ item: "", content: "", status: "미해소" });
+      render();
+    }
+    if (action === "report-remove-issue") {
+      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
+      doc.body.issues.splice(Number(el.dataset.index), 1);
+      render();
+    }
+    if (action === "report-add-check") {
+      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
+      doc.body.checks = doc.body.checks || [];
+      doc.body.checks.push({ text: "", done: false, taskId: "" });
+      render();
+    }
+    if (action === "report-remove-check") {
+      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
+      doc.body.checks.splice(Number(el.dataset.index), 1);
+      render();
     }
 
     if (action === "save-personal") {
@@ -1977,9 +2380,11 @@
       const task = currentTask();
       if (!task) return toast("과제를 먼저 추가해 주세요.");
       const weeklySummary = (document.getElementById("weekly-summary")?.value || "").trim();
+      const weeklyDetail = (document.getElementById("weekly-detail")?.value || "").trim();
+      const weeklyIssues = (document.getElementById("weekly-issues")?.value || "").trim();
       const nextWeekPlan = (document.getElementById("task-next-plan")?.value || "").trim();
       if (!weeklySummary || !nextWeekPlan) {
-        window.alert("금주 요약과 차주 계획을 모두 입력한 뒤 저장해 주세요.");
+        window.alert("금주 진전과 차주 계획을 모두 입력한 뒤 저장해 주세요.");
         return;
       }
       const progressInput = document.getElementById("report-progress");
@@ -1987,15 +2392,11 @@
         task.progress = Math.min(100, Math.max(0, Number(progressInput.value || 0)));
       }
       task.weeklySummary = weeklySummary;
+      task.weeklyDetail = weeklyDetail;
+      task.weeklyIssues = weeklyIssues;
       task.nextWeekPlan = nextWeekPlan;
       task.reportCompleted = true;
-      upsertTaskWeekSnapshot(task, currentWeekNumber(company), {
-        progress: task.progress,
-        weeklySummary: task.weeklySummary,
-        nextWeekPlan: task.nextWeekPlan,
-        instructorFeedback: task.instructorFeedback || "",
-        reportCompleted: true
-      });
+      upsertTaskWeekSnapshot(task, currentWeekNumber(company), taskReportPatch(task, { reportCompleted: true }));
       await persist("선택한 과제의 주간 보고를 저장했으며 '작성완료'로 업데이트되었습니다.");
       render();
     }
@@ -2012,15 +2413,11 @@
       const task = currentTask();
       if (!task) return toast("과제를 먼저 추가해 주세요.");
       task.weeklySummary = document.getElementById("weekly-summary")?.value || task.weeklySummary || "";
+      task.weeklyDetail = document.getElementById("weekly-detail")?.value || task.weeklyDetail || "";
+      task.weeklyIssues = document.getElementById("weekly-issues")?.value || task.weeklyIssues || "";
       task.nextWeekPlan = document.getElementById("task-next-plan")?.value || task.nextWeekPlan || "";
       task.instructorFeedback = document.getElementById("task-feedback")?.value || "";
-      upsertTaskWeekSnapshot(task, currentWeekNumber(company), {
-        progress: task.progress,
-        weeklySummary: task.weeklySummary,
-        nextWeekPlan: task.nextWeekPlan,
-        instructorFeedback: task.instructorFeedback,
-        reportCompleted: Boolean(task.reportCompleted)
-      });
+      upsertTaskWeekSnapshot(task, currentWeekNumber(company), taskReportPatch(task));
       await persist("선택한 과제의 컨설턴트 피드백을 저장했습니다.");
       render();
     }
@@ -2114,8 +2511,11 @@
             statistics: row.statistics || emptyStatistics(),
             members: mergeTaskMembers(defaultTaskMembers(participant), row.members),
             weeklySummary: "",
+            weeklyDetail: "",
+            weeklyIssues: "",
             nextWeekPlan: "",
             instructorFeedback: "",
+            workStatus: row.workStatus || "개발",
             reportCompleted: false
           });
           participant.tasks.push(task);
@@ -2124,25 +2524,44 @@
       } else {
         const taskName = document.getElementById("task-name")?.value.trim() || "";
         if (!taskName) return toast("과제명을 입력하거나 CSV를 업로드해 주세요.");
-        const task = ensureTaskFields({
-          id: uid("t"),
-          name: taskName,
-          progress: 0,
-          startDate: document.getElementById("task-start")?.value || "",
-          endDate: document.getElementById("task-end")?.value || "",
-          goal: document.getElementById("task-goal")?.value || "",
-          asIsProcess: document.getElementById("task-asis")?.value || "",
-          toBeProcess: document.getElementById("task-tobe")?.value || "",
-          difficulty: normalizeDifficulty(document.getElementById("task-difficulty")?.value || "중"),
-          hierarchy: collectHierarchy("task-"),
-          statistics: collectStatistics("task-"),
-          members: collectTaskMembers(),
-          weeklySummary: "",
-          nextWeekPlan: "",
-          instructorFeedback: "",
-          reportCompleted: false
-        });
-        participant.tasks.push(task);
+        let task = participant.tasks.find((t) => t.id === state.form.draftTaskId);
+        if (task) {
+          task.name = taskName;
+          task.startDate = document.getElementById("task-start")?.value || "";
+          task.endDate = document.getElementById("task-end")?.value || "";
+          task.goal = document.getElementById("task-goal")?.value || "";
+          task.asIsProcess = collectProcessText("asis");
+          task.toBeProcess = collectProcessText("tobe");
+          task.difficulty = normalizeDifficulty(document.getElementById("task-difficulty")?.value || "중");
+          task.hierarchy = collectHierarchy("task-");
+          task.statistics = collectStatistics("task-");
+          task.members = collectTaskMembers();
+          task.workStatus = document.getElementById("task-work-status")?.value || "개발";
+          ensureTaskFields(task);
+        } else {
+          task = ensureTaskFields({
+            id: uid("t"),
+            name: taskName,
+            progress: 0,
+            startDate: document.getElementById("task-start")?.value || "",
+            endDate: document.getElementById("task-end")?.value || "",
+            goal: document.getElementById("task-goal")?.value || "",
+            asIsProcess: collectProcessText("asis"),
+            toBeProcess: collectProcessText("tobe"),
+            difficulty: normalizeDifficulty(document.getElementById("task-difficulty")?.value || "중"),
+            hierarchy: collectHierarchy("task-"),
+            statistics: collectStatistics("task-"),
+            members: collectTaskMembers(),
+            weeklySummary: "",
+            weeklyDetail: "",
+            weeklyIssues: "",
+            nextWeekPlan: "",
+            instructorFeedback: "",
+            workStatus: document.getElementById("task-work-status")?.value || "개발",
+            reportCompleted: false
+          });
+          participant.tasks.push(task);
+        }
         created.push(task);
       }
 
@@ -2150,8 +2569,46 @@
       state.selectedCompanyId = company.id;
       state.selectedParticipantId = participant.id;
       state.form.csvTasks = null;
+      state.form.draftTaskId = null;
       await persist(created.length > 1 ? `과제 ${created.length}건을 추가했습니다.` : "과제를 추가했습니다.");
       closeModal();
+    }
+
+    if (action === "save-task-section") {
+      const ctx = resolveTaskSectionContext();
+      if (!canManageParticipant(ctx.participant)) {
+        return toast("본인 과제만 수정할 수 있습니다.");
+      }
+      const task = ensureEditableTaskForSection(ctx);
+      if (!task) return;
+      const section = el.dataset.section;
+      const prefix = taskFormPrefix();
+
+      if (section === "basics") {
+        const applied = applyTaskBasicsFromDom(task, prefix);
+        if (!applied.ok) return toast(applied.message);
+        await persist("기본 정보를 중간 저장했습니다.");
+        return;
+      }
+
+      if (section === "process") {
+        syncProcessTotalsToStatistics();
+        task.asIsProcess = collectProcessText("asis");
+        task.toBeProcess = collectProcessText("tobe");
+        task.statistics = collectStatistics(prefix);
+        await persist("프로세스 설계를 중간 저장했습니다.");
+        return;
+      }
+
+      if (section === "members") {
+        const members = collectTaskMembers();
+        if (!members.length) return toast("참여자를 한 명 이상 입력해 주세요.");
+        task.members = members;
+        await persist("참여자를 중간 저장했습니다.");
+        return;
+      }
+
+      return toast("알 수 없는 저장 구간입니다.");
     }
 
     if (action === "save-task-detail") {
@@ -2165,9 +2622,10 @@
       task.startDate = document.getElementById("detail-task-start")?.value || "";
       task.endDate = document.getElementById("detail-task-end")?.value || "";
       task.goal = document.getElementById("detail-task-goal")?.value || "";
-      task.asIsProcess = document.getElementById("detail-task-asis")?.value || "";
-      task.toBeProcess = document.getElementById("detail-task-tobe")?.value || "";
+      task.asIsProcess = collectProcessText("asis");
+      task.toBeProcess = collectProcessText("tobe");
       task.difficulty = normalizeDifficulty(document.getElementById("detail-task-difficulty")?.value || task.difficulty);
+      task.workStatus = normalizeWorkStatus(document.getElementById("detail-task-work-status")?.value || task.workStatus);
       task.hierarchy = collectHierarchy("detail-task-");
       task.statistics = collectStatistics("detail-task-");
       task.members = collectTaskMembers();
@@ -2196,12 +2654,22 @@
   let progressSaveTimer = null;
 
   document.addEventListener("input", (event) => {
+    if (event.target.closest("[data-report-field]") && state.form.reportDoc) {
+      syncWeeklyReportFromDom(state.form.reportDoc);
+      const preview = document.querySelector(".report-pdf-preview");
+      if (preview) preview.innerHTML = renderWeeklyReportPdfHtml(state.form.reportDoc);
+    }
+
     const el = event.target.closest("[data-action]");
     if (!el) return;
     const action = el.dataset.action;
 
     if (action === "preview-process") {
       refreshProcessPreview();
+    }
+
+    if (action === "format-stat" || action === "recalc-stats") {
+      syncProcessTotalsToStatistics();
     }
 
     if (action === "search") {
@@ -2251,22 +2719,26 @@
 
       clearTimeout(progressSaveTimer);
       progressSaveTimer = setTimeout(async () => {
-        upsertTaskWeekSnapshot(task, currentWeekNumber(company), {
-          progress: task.progress,
-          weeklySummary: task.weeklySummary || "",
-          nextWeekPlan: task.nextWeekPlan || "",
-          instructorFeedback: task.instructorFeedback || "",
-          reportCompleted: Boolean(task.reportCompleted)
-        });
+        upsertTaskWeekSnapshot(task, currentWeekNumber(company), taskReportPatch(task));
         await persist("진척도를 저장했습니다.");
       }, 400);
     }
   });
 
   document.addEventListener("change", async (event) => {
+    if (event.target.closest("[data-report-field]") && state.form.reportDoc) {
+      syncWeeklyReportFromDom(state.form.reportDoc);
+      const preview = document.querySelector(".report-pdf-preview");
+      if (preview) preview.innerHTML = renderWeeklyReportPdfHtml(state.form.reportDoc);
+    }
+
     const el = event.target.closest("[data-action]");
     if (!el) return;
     const action = el.dataset.action;
+
+    if (action === "preview-process") {
+      refreshProcessPreview();
+    }
 
     if (action === "select-company") {
       state.selectedCompanyId = el.value;
@@ -2280,6 +2752,21 @@
     if (action === "change-report-week") {
       state.selectedWeek = Number(el.value);
       render();
+    }
+
+    if (action === "change-company-report-week") {
+      const week = Number(el.value);
+      const company = currentCompany();
+      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
+      try {
+        if (company && doc && Number(doc.weekNumber) !== week && doc.status !== "published") {
+          await API.saveCompanyWeeklyReport(company.id, doc.weekNumber, doc);
+        }
+        await loadCompanyWeeklyReport(week);
+        render();
+      } catch (err) {
+        toast(err.message || "해당 주차 레포트를 불러오지 못했습니다.");
+      }
     }
 
     if (action === "change-report-task") {
@@ -2323,6 +2810,11 @@
 
     if (action === "format-stat") {
       el.value = formatThousands(parseNumericValue(el.value));
+      syncProcessTotalsToStatistics();
+    }
+
+    if (action === "recalc-stats") {
+      syncProcessTotalsToStatistics();
     }
   });
 

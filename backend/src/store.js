@@ -15,6 +15,8 @@ module.exports = {
   readData: (...args) => driver.readData(...args),
   writeData: (...args) => driver.writeData(...args),
   resetData: (...args) => driver.resetData(...args),
+  getCompanyWeeklyReport: (...args) => driver.getCompanyWeeklyReport(...args),
+  upsertCompanyWeeklyReport: (...args) => driver.upsertCompanyWeeklyReport(...args),
   uid,
   isSupabaseConfigured
 };

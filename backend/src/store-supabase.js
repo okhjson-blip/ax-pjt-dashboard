@@ -68,8 +68,11 @@ function mapWeeklyReportRow(row) {
     weekNumber: Number(row.week_number || 1),
     progress: Number(row.progress || 0),
     weeklySummary: row.weekly_summary || "",
+    weeklyDetail: row.weekly_detail || "",
+    weeklyIssues: row.weekly_issues || "",
     nextWeekPlan: row.next_week_plan || "",
     instructorFeedback: row.instructor_feedback || "",
+    workStatus: row.work_status || "",
     reportCompleted: Boolean(row.report_completed),
     savedAt: row.saved_at || null
   };
@@ -82,9 +85,12 @@ function mapTaskRow(row, weeklyReports = []) {
     name: row.name,
     progress: Number(row.progress || 0),
     weeklySummary: row.weekly_summary || "",
+    weeklyDetail: row.weekly_detail || "",
+    weeklyIssues: row.weekly_issues || "",
     nextWeekPlan: row.next_week_plan || "",
     instructorFeedback: row.instructor_feedback || "",
     reportCompleted: Boolean(row.report_completed),
+    workStatus: extras.workStatus || "개발",
     startDate: extras.startDate || row.start_date || "",
     endDate: extras.endDate || row.end_date || "",
     goal: extras.goal || row.goal || "",
@@ -191,6 +197,8 @@ async function writeData(data) {
             name: task.name,
             progress: Number(task.progress || 0),
             weekly_summary: task.weeklySummary || "",
+            weekly_detail: task.weeklyDetail || "",
+            weekly_issues: task.weeklyIssues || "",
             next_week_plan: task.nextWeekPlan || "",
             instructor_feedback: task.instructorFeedback || "",
             report_completed: Boolean(task.reportCompleted),
@@ -201,6 +209,7 @@ async function writeData(data) {
               asIsProcess: task.asIsProcess || "",
               toBeProcess: task.toBeProcess || "",
               difficulty: task.difficulty || "중",
+              workStatus: task.workStatus || "개발",
               hierarchy: task.hierarchy || { l1: "", l2: "", l3: "", l4: "" },
               statistics: task.statistics || {},
               members: Array.isArray(task.members) ? task.members : []
@@ -215,8 +224,11 @@ async function writeData(data) {
               week_number: weekNumber,
               progress: Number(report.progress || 0),
               weekly_summary: report.weeklySummary || "",
+              weekly_detail: report.weeklyDetail || "",
+              weekly_issues: report.weeklyIssues || "",
               next_week_plan: report.nextWeekPlan || "",
               instructor_feedback: report.instructorFeedback || "",
+              work_status: report.workStatus || task.workStatus || "",
               report_completed: Boolean(report.reportCompleted),
               saved_at: report.savedAt || nowIso,
               updated_at: nowIso
@@ -324,6 +336,67 @@ async function writeData(data) {
   });
 }
 
+function mapCompanyWeeklyReportRow(row) {
+  return {
+    id: row.id,
+    companyId: row.company_id,
+    weekNumber: Number(row.week_number || 1),
+    status: row.status === "published" ? "published" : "draft",
+    title: row.title || "",
+    subtitle: row.subtitle || "",
+    periodStart: row.period_start || "",
+    periodEnd: row.period_end || "",
+    location: row.location || "",
+    body: row.body && typeof row.body === "object" ? row.body : {},
+    source: row.source && typeof row.source === "object" ? row.source : {},
+    publishedAt: row.published_at || null,
+    updatedAt: row.updated_at || null
+  };
+}
+
+async function getCompanyWeeklyReport(companyId, weekNumber) {
+  return withSupabaseRetry(async () => {
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb
+      .from("company_weekly_reports")
+      .select("*")
+      .eq("company_id", companyId)
+      .eq("week_number", Number(weekNumber))
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapCompanyWeeklyReportRow(data) : null;
+  });
+}
+
+async function upsertCompanyWeeklyReport(doc) {
+  return withSupabaseRetry(async () => {
+    const sb = getSupabaseAdmin();
+    const nowIso = new Date().toISOString();
+    const row = {
+      id: doc.id,
+      company_id: doc.companyId,
+      week_number: Number(doc.weekNumber),
+      status: doc.status === "published" ? "published" : "draft",
+      title: doc.title || "",
+      subtitle: doc.subtitle || "",
+      period_start: doc.periodStart || null,
+      period_end: doc.periodEnd || null,
+      location: doc.location || "",
+      body: doc.body || {},
+      source: doc.source || {},
+      published_at: doc.publishedAt || null,
+      updated_at: nowIso
+    };
+    const { data, error } = await sb
+      .from("company_weekly_reports")
+      .upsert(row, { onConflict: "company_id,week_number" })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapCompanyWeeklyReportRow(data);
+  });
+}
+
 async function resetData() {
   const seed = createSeedData();
   return writeData(seed);
@@ -333,6 +406,8 @@ module.exports = {
   readData,
   writeData,
   resetData,
+  getCompanyWeeklyReport,
+  upsertCompanyWeeklyReport,
   uid,
   weeklyReportId
 };
