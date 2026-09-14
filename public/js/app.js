@@ -1154,12 +1154,13 @@
     );
   }
 
-  function renderHierarchyFields(prefix, hierarchy, editable = true) {
+  function renderHierarchyFields(prefix, hierarchy, editable = true, projectName = "") {
     const h = normalizeHierarchy(hierarchy);
     const ro = editable ? "" : "readonly class='readonly'";
     return `
       <section class="task-add-panel">
         <h4>과제 계층</h4>
+        <div class="field"><label>프로젝트명</label><input id="${prefix}project-name" value="${escapeHtml(projectName || "")}" ${ro} placeholder="예: Light ERP 프로토타입" /></div>
         <div class="grid hierarchy-grid">
           <div class="field"><label>L1 대분류</label><input id="${prefix}h-l1" value="${escapeHtml(h.l1)}" ${ro} placeholder="예: 사업기획" /></div>
           <div class="field"><label>L2 중분류</label><input id="${prefix}h-l2" value="${escapeHtml(h.l2)}" ${ro} placeholder="예: 신사업기획" /></div>
@@ -1168,6 +1169,18 @@
         </div>
       </section>
     `;
+  }
+
+  function applyProjectNameToInputs(draft, prefix = "task-") {
+    if (!draft) return;
+    const el = document.getElementById(`${prefix}project-name`);
+    if (!el) return;
+    const val = String(draft.projectName || "").trim();
+    if (val) el.value = val;
+  }
+
+  function applyProjectNameToTask(task, prefix = "task-") {
+    task.projectName = document.getElementById(`${prefix}project-name`)?.value.trim() || "";
   }
 
   function frequencyUnitSelectHtml(prefix, selected, editable = true) {
@@ -1667,7 +1680,7 @@
         </div>
       </section>
       ${renderMembersFields(members, true, { midSave: true })}
-      ${renderHierarchyFields("task-", draft.hierarchy, true)}
+      ${renderHierarchyFields("task-", draft.hierarchy, true, draft.projectName || "")}
       ${renderProcessEditor(draft.asIsProcess || "", draft.toBeProcess || "", true, { midSave: true })}
       ${renderFrequencyFields("task-", draft.statistics, true)}
       ${renderStatisticsFields("task-", draft.statistics, true)}
@@ -1680,7 +1693,7 @@
         <div class="field task-import-card">
           <label>CSV 업로드 (선택)</label>
           <input id="task-csv" type="file" accept=".csv,text/csv" data-action="task-csv-change" />
-          <p class="helper">BPA 과제 리포트 CSV(task_name, hierarchy_json, statistics_json, as_is/to_be_processes_json)를 지원합니다.</p>
+          <p class="helper">BPA 과제 export CSV(과제명·계층·참여자·프로세스·수행 빈도·성과 지표)를 지원합니다.</p>
           <div id="csv-preview" class="helper"></div>
         </div>
       </div>
@@ -1756,6 +1769,7 @@
     if (draft.toBeProcess != null) {
       remountProcessList("tobe", parseProcessFromText(draft.toBeProcess, "tobe"));
     }
+    applyProjectNameToInputs(draft, "task-");
     refreshProcessPreview();
   }
 
@@ -1873,7 +1887,7 @@
         </div>
       </section>
       ${renderMembersFields(members, editable, { midSave: true })}
-      ${renderHierarchyFields("detail-task-", task.hierarchy, editable)}
+      ${renderHierarchyFields("detail-task-", task.hierarchy, editable, task.projectName || "")}
       ${renderProcessEditor(task.asIsProcess || "", task.toBeProcess || "", editable, { midSave: true })}
       ${renderFrequencyFields("detail-task-", task.statistics, editable)}
       ${renderStatisticsFields("detail-task-", task.statistics, editable)}
@@ -2583,6 +2597,11 @@
             nextWeekPlan: "",
             instructorFeedback: "",
             workStatus: row.workStatus || "개발",
+            projectName: row.projectName || "",
+            bdwSummary: row.bdwSummary || "",
+            bdwDetail: row.bdwDetail || "",
+            aiFit: row.aiFit || "",
+            asIsProcessDetail: row.asIsProcessDetail || "",
             reportCompleted: false
           });
           participant.tasks.push(task);
@@ -2604,6 +2623,7 @@
           task.statistics = collectStatistics("task-");
           task.members = collectTaskMembers();
           task.workStatus = document.getElementById("task-work-status")?.value || "개발";
+          applyProjectNameToTask(task, "task-");
           ensureTaskFields(task);
         } else {
           task = ensureTaskFields({
@@ -2627,6 +2647,7 @@
             workStatus: document.getElementById("task-work-status")?.value || "개발",
             reportCompleted: false
           });
+          applyProjectNameToTask(task, "task-");
           participant.tasks.push(task);
         }
         created.push(task);
@@ -2663,6 +2684,7 @@
         task.asIsProcess = collectProcessText("asis");
         task.toBeProcess = collectProcessText("tobe");
         task.statistics = collectStatistics(prefix);
+        applyProjectNameToTask(task, prefix);
         await persist("프로세스 설계를 중간 저장했습니다.");
         return;
       }
@@ -2694,6 +2716,7 @@
       task.difficulty = normalizeDifficulty(document.getElementById("detail-task-difficulty")?.value || task.difficulty);
       task.workStatus = normalizeWorkStatus(document.getElementById("detail-task-work-status")?.value || task.workStatus);
       task.hierarchy = collectHierarchy("detail-task-");
+      applyProjectNameToTask(task, "detail-task-");
       task.statistics = collectStatistics("detail-task-");
       task.members = collectTaskMembers();
       await persist("과제 상세를 저장했습니다.");

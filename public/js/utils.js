@@ -470,7 +470,15 @@ function normalizeProcessMethod(value) {
   const raw = String(value || "").trim().toLowerCase();
   if (!raw) return "";
   if (raw === "manual" || raw === "수작업" || raw === "수동") return "manual";
-  if (raw === "ai" || raw === "자동화" || raw === "auto" || raw === "automated" || raw === "자동화됨") {
+  if (
+    raw === "ai" ||
+    raw === "자동화" ||
+    raw === "auto" ||
+    raw === "automated" ||
+    raw === "자동화됨" ||
+    raw === "ai 자동화" ||
+    (raw.includes("ai") && raw.includes("자동"))
+  ) {
     return "ai";
   }
   return "";
@@ -530,10 +538,53 @@ function formatProcessHoursChip(minutes) {
   return `${hours}시간`;
 }
 
-/** "120분" | "2시간" | "1.5h" | "90" → 분 문자열 */
+/** BPA export: "8h:00s" (h + 분) → 분 문자열 */
+function parseHColonDurationToMinutes(raw) {
+  const text = String(raw || "").trim();
+  const match = text.match(/^(\d+(?:\.\d+)?)\s*h\s*:\s*(\d+)\s*s$/i);
+  if (!match) return "";
+  const h = parseNumericLoose(match[1]) || 0;
+  const mm = parseNumericLoose(match[2]) || 0;
+  return String(Math.round(h * 60 + mm));
+}
+
+/** "128h:00s" 등 → 시간(숫자). 성과 지표의 시간 단위 필드용 */
+function parseDurationToHours(raw) {
+  const minutes = parseHColonDurationToMinutes(raw);
+  if (minutes) {
+    const n = parseNumericLoose(minutes);
+    return n == null ? "" : String(Math.round((n / 60) * 1000) / 1000);
+  }
+  const text = String(raw || "").trim();
+  const hoursMatch = text.match(/^([\d.,]+)\s*(시간|h|hr|hrs|hours?)$/i);
+  if (hoursMatch) {
+    const n = parseNumericLoose(hoursMatch[1]);
+    return n == null ? "" : String(n);
+  }
+  const n = parseNumericLoose(text.replace(/%/g, ""));
+  return n == null ? "" : String(n);
+}
+
+function parsePercentValue(raw) {
+  const text = String(raw || "").trim().replace(/%/g, "");
+  const n = parseNumericLoose(text);
+  return n == null ? "" : String(n);
+}
+
+function parseMoneyValue(raw) {
+  const text = String(raw || "")
+    .trim()
+    .replace(/[₩\s,]/g, "");
+  const n = parseNumericLoose(text);
+  return n == null ? "" : String(Math.round(n));
+}
+
+/** "120분" | "2시간" | "1.5h" | "8h:00s" | "90" → 분 문자열 */
 function parseDurationToMinutes(raw) {
   const text = String(raw || "").trim();
   if (!text) return "";
+  const hColon = parseHColonDurationToMinutes(text);
+  if (hColon) return hColon;
   const hoursMatch = text.match(/^([\d.,]+)\s*(시간|h|hr|hrs|hours?)$/i);
   if (hoursMatch) return hoursToMinutes(hoursMatch[1]);
   const minutesMatch = text.match(/^([\d.,]+)\s*분$/i);
@@ -755,6 +806,11 @@ function ensureTaskFields(task) {
   task.members = Array.isArray(task.members)
     ? task.members.map((m) => normalizeTaskMember(m, Boolean(m.isOwner)))
     : [];
+  task.projectName ??= "";
+  task.bdwSummary ??= "";
+  task.bdwDetail ??= "";
+  task.aiFit ??= "";
+  task.asIsProcessDetail ??= "";
   if (!Array.isArray(task.weeklyReports)) task.weeklyReports = [];
   task.reportCompleted ??= Boolean(
     String(task.weeklySummary || "").trim() || String(task.nextWeekPlan || "").trim()
@@ -835,6 +891,143 @@ function renderProcessFlow(label, textOrSteps, layout = "horizontal", kind = "as
   `;
 }
 
+function parseCsvParticipantsText(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return [];
+  if (text.startsWith("[") || text.startsWith("{")) {
+    const parsed = parseJsonCell(text);
+    if (Array.isArray(parsed)) return parsed.map((m) => normalizeTaskMember(m));
+  }
+  return text
+    .split(/\s*[>＞]\s*/)
+    .map((segment) => {
+      const parts = segment.split(/\s*\/\s*/).map((p) => p.trim());
+      if (!parts[0]) return null;
+      const roleText = parts[2] || "";
+      const isLeader = /리더/.test(roleText);
+      return normalizeTaskMember(
+        {
+          name: parts[0] || "",
+          position: parts[1] || "",
+          role: roleText,
+          email: parts[3] || ""
+        },
+        isLeader
+      );
+    })
+    .filter(Boolean);
+}
+
+function parseCsvFrequencyText(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return {};
+  const result = {};
+  const unitMatch = text.match(/^(일|주|월|년)/);
+  if (unitMatch) result.frequencyUnit = unitMatch[1];
+  const countMatch = text.match(/(\d+(?:\.\d+)?)\s*회/);
+  if (countMatch) result.frequencyCount = parseNumericValue(countMatch[1]);
+  const annualMatch = text.match(/연간\s*(\d+(?:\.\d+)?)\s*회/);
+  if (annualMatch) result.annualFrequency = parseNumericValue(annualMatch[1]);
+  return result;
+}
+
+function sumAsIsWaitingHoursFromDetail(raw) {
+  const text = String(raw || "");
+  if (!text) return "";
+  let totalMinutes = 0;
+  const re = /대기\s*(\d+(?:\.\d+)?)\s*h/gi;
+  let m;
+  while ((m = re.exec(text))) {
+    const part = `${m[1]}h:00s`;
+    const mins = parseNumericLoose(parseHColonDurationToMinutes(part));
+    if (mins != null) totalMinutes += mins;
+  }
+  if (totalMinutes <= 0) return "";
+  return String(Math.round((totalMinutes / 60) * 1000) / 1000);
+}
+
+function hierarchyFromCsvColumns(cols, idx, base) {
+  const h = normalizeHierarchy(base);
+  const l1 = cols[idx(["l1 구분", "l1", "l1 대분류"])] || "";
+  const l2 = cols[idx(["l2 대분류", "l2", "l2 중분류"])] || "";
+  const l3Col = cols[idx(["l3 중분류", "l3", "l3 소분류"])] || "";
+  const l3 = l3Col || cols[idx(["프로젝트명", "project_name", "project"])] || "";
+  const l4 = cols[idx(["l4 모듈", "l4", "l4 세부분류"])] || "";
+  if (l1) h.l1 = l1;
+  if (l2) h.l2 = l2;
+  if (l3) h.l3 = l3;
+  if (l4) h.l4 = l4;
+  return h;
+}
+
+function statisticsFromCsvColumns(cols, idx, baseStats) {
+  const stats = normalizeStatistics(baseStats);
+  const setIf = (key, value) => {
+    if (value == null || value === "") return;
+    stats[key] = value;
+  };
+
+  setIf("asIsTotalTime", parseDurationToMinutes(cols[idx(["as-is 수행시간", "asis 수행시간", "as_is_total_time"])] || ""));
+  setIf("toBeTotalTime", parseDurationToMinutes(cols[idx(["to-be 수행시간", "tobe 수행시간", "to_be_total_time"])] || ""));
+  setIf("timeSavings", parseDurationToMinutes(cols[idx(["건당 절감시간", "time_savings"])] || ""));
+  setIf("timeSavingsRate", parsePercentValue(cols[idx(["시간 절감률", "time_savings_rate"])] || ""));
+  setIf("automationRate", parsePercentValue(cols[idx(["자동화율", "automation_rate"])] || ""));
+  setIf(
+    "annualSavingsHours",
+    parseDurationToHours(cols[idx(["연간 절감시간", "annual_savings_hours"])] || "")
+  );
+  setIf("fteEquivalent", parseNumericValue(cols[idx(["절감 fte", "fte_equivalent", "절감fte"])] || ""));
+  setIf(
+    "estimatedDevelopmentCost",
+    parseMoneyValue(cols[idx(["추정 외주개발비", "추정 외주개발비용", "estimated_development_cost"])] || "")
+  );
+
+  const freq = parseCsvFrequencyText(cols[idx(["수행 빈도", "frequency", "frequency_text"])] || "");
+  setIf("frequencyUnit", freq.frequencyUnit || "");
+  setIf("frequencyCount", freq.frequencyCount || "");
+  setIf("annualFrequency", freq.annualFrequency || "");
+
+  const waitHours = sumAsIsWaitingHoursFromDetail(
+    cols[idx(["as-is 상세", "asis 상세", "as_is_detail"])] || ""
+  );
+  setIf("asIsWaitingHours", waitHours);
+
+  return stats;
+}
+
+function pickCsvProcessRaw(cols, idx, kind) {
+  const isAsIs = kind === "asis";
+  const jsonRaw =
+    cols[
+      idx(
+        isAsIs
+          ? ["as_is_processes_json", "as-is processes json"]
+          : ["to_be_processes_json", "to-be processes json"]
+      )
+    ] || "";
+  const json = parseJsonCell(jsonRaw);
+  if (Array.isArray(json)) return formatProcessFromSteps(json, kind);
+
+  const detail =
+    cols[
+      idx(
+        isAsIs
+          ? ["as-is 상세", "asis 상세", "as_is_detail"]
+          : ["to-be 상세", "tobe 상세", "to_be_detail"]
+      )
+    ] || "";
+  const simple =
+    cols[
+      idx(
+        isAsIs
+          ? ["asis", "as-is", "as_is", "현재프로세스", "as-is 프로세스"]
+          : ["tobe", "to-be", "to_be", "개선프로세스", "to-be 프로세스"]
+      )
+    ] || "";
+  if (isAsIs) return String(simple || detail || "").trim();
+  return String(detail || simple || "").trim();
+}
+
 function parseCsvTasks(text) {
   const lines = String(text || "")
     .replace(/^\uFEFF/, "")
@@ -888,18 +1081,30 @@ function parseCsvTasks(text) {
       if (hasHeader) {
         const name =
           cols[idx(["과제명", "name", "task", "과제", "task_name"])] || cols[0] || "";
-        const asIsRaw =
-          cols[idx(["asis", "as-is", "as_is", "현재프로세스", "as-is 프로세스", "as_is_processes_json"])] || "";
-        const toBeRaw =
-          cols[idx(["tobe", "to-be", "to_be", "개선프로세스", "to-be 프로세스", "to_be_processes_json"])] || "";
-        const asIsJson = parseJsonCell(asIsRaw);
-        const toBeJson = parseJsonCell(toBeRaw);
-        const hierarchy = normalizeHierarchy(parseJsonCell(cols[idx(["hierarchy_json", "hierarchy", "계층"])] || ""));
         const statsJson = parseJsonCell(cols[idx(["statistics_json", "statistics", "통계"])] || "");
-        const statistics = normalizeStatistics(statsJson);
-        const membersRaw = parseJsonCell(cols[idx(["task_participants_json", "members", "참여자"])] || "");
+        const hierarchyJson = parseJsonCell(cols[idx(["hierarchy_json", "hierarchy", "계층"])] || "");
+        let hierarchy = normalizeHierarchy(hierarchyJson);
+        hierarchy = hierarchyFromCsvColumns(cols, idx, hierarchy);
+
+        let statistics = statisticsFromCsvColumns(cols, idx, statsJson || {});
+
+        const membersCol =
+          cols[idx(["과제 참여자", "task_participants_json", "members", "참여자"])] || "";
+        let members = parseCsvParticipantsText(membersCol);
+        const membersJson = parseJsonCell(membersCol);
+        if (!members.length && Array.isArray(membersJson)) {
+          members = membersJson.map((m) => normalizeTaskMember(m));
+        }
+
         const difficultyRaw =
-          cols[idx(["난이도", "difficulty", "level"])] || statsJson?.automation_difficulty || "중";
+          cols[idx(["난이도", "difficulty", "level"])] ||
+          cols[idx(["ai 자동화 구현 난이도", "automation_difficulty"])] ||
+          statsJson?.automation_difficulty ||
+          "중";
+
+        const asIsProcess = pickCsvProcessRaw(cols, idx, "asis");
+        const toBeProcess = pickCsvProcessRaw(cols, idx, "tobe");
+
         return {
           name,
           startDate:
@@ -908,13 +1113,19 @@ function parseCsvTasks(text) {
             cols[idx(["완료일", "종료일", "enddate", "end", "task_end_date"])] || "",
           goal:
             cols[idx(["과제 목표", "과제목표", "성과목표", "성과 목표", "goal", "목표", "task_goal"])] || "",
-          asIsProcess: Array.isArray(asIsJson) ? formatProcessFromSteps(asIsJson, "asis") : asIsRaw,
-          toBeProcess: Array.isArray(toBeJson) ? formatProcessFromSteps(toBeJson, "tobe") : toBeRaw,
+          asIsProcess,
+          toBeProcess,
           progress: Number(cols[idx(["진척도", "progress"])] || 0) || 0,
           difficulty: normalizeDifficulty(difficultyRaw),
           hierarchy,
           statistics,
-          members: Array.isArray(membersRaw) ? membersRaw.map((m) => normalizeTaskMember(m)) : []
+          members,
+          projectName: cols[idx(["프로젝트명", "project_name", "project"])] || "",
+          bdwSummary: cols[idx(["bdw 요약", "bdw_summary"])] || "",
+          bdwDetail: cols[idx(["bdw 상세", "bdw_detail"])] || "",
+          aiFit: cols[idx(["ai fit", "ai_fit"])] || "",
+          asIsProcessDetail:
+            cols[idx(["as-is 상세", "asis 상세", "as_is_detail"])] || ""
         };
       }
       return {

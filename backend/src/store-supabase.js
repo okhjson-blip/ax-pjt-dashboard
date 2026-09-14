@@ -100,6 +100,11 @@ function mapTaskRow(row, weeklyReports = []) {
     hierarchy: extras.hierarchy || { l1: "", l2: "", l3: "", l4: "" },
     statistics: extras.statistics || {},
     members: Array.isArray(extras.members) ? extras.members : [],
+    projectName: extras.projectName || "",
+    bdwSummary: extras.bdwSummary || "",
+    bdwDetail: extras.bdwDetail || "",
+    aiFit: extras.aiFit || "",
+    asIsProcessDetail: extras.asIsProcessDetail || "",
     weeklyReports
   };
 }
@@ -212,7 +217,12 @@ async function writeData(data) {
               workStatus: task.workStatus || "개발",
               hierarchy: task.hierarchy || { l1: "", l2: "", l3: "", l4: "" },
               statistics: task.statistics || {},
-              members: Array.isArray(task.members) ? task.members : []
+              members: Array.isArray(task.members) ? task.members : [],
+              projectName: task.projectName || "",
+              bdwSummary: task.bdwSummary || "",
+              bdwDetail: task.bdwDetail || "",
+              aiFit: task.aiFit || "",
+              asIsProcessDetail: task.asIsProcessDetail || ""
             }
           });
           for (const report of task.weeklyReports || []) {
