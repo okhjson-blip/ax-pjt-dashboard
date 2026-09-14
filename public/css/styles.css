@@ -1501,6 +1501,44 @@ input[type="range"].range-gray { accent-color: var(--muted); }
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.stats-footer-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: inherit;
+  margin-top: 8px;
+}
+
+.frequency-panel {
+  padding: 8px 12px !important;
+}
+
+.frequency-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-items: end;
+}
+
+.frequency-item {
+  margin-bottom: 0 !important;
+  gap: 2px !important;
+}
+
+.frequency-item label {
+  font-size: 12px;
+}
+
+.frequency-item input,
+.frequency-item select {
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
+.frequency-hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+}
+
 .stat-manual-field label {
   color: var(--text);
 }
@@ -1644,6 +1682,8 @@ select.difficulty-select.readonly {
   .task-import-layout,
   .hierarchy-grid,
   .stats-form-grid,
+  .stats-footer-grid,
+  .frequency-row,
   .task-member-row,
   .process-flow-stack,
   .process-step-meta-grid {

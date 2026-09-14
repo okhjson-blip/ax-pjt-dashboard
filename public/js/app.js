@@ -1192,36 +1192,9 @@
     `;
   }
 
-  function renderStatFieldInput(prefix, field, stats, editable = true) {
+  function renderMetricFieldInput(prefix, field, stats, editable = true) {
     const ro = editable ? "" : "readonly class='readonly'";
     const value = stats[field.key] || "";
-    if (field.key === "frequencyUnit") {
-      return `
-        <div class="field stat-manual-field">
-          <label>${escapeHtml(field.label)}</label>
-          ${frequencyUnitSelectHtml(prefix, value, editable)}
-          <p class="helper" style="margin:2px 0 0">기간당 기준(일/주/월/년)</p>
-        </div>
-      `;
-    }
-    if (field.key === "frequencyCount") {
-      return `
-        <div class="field stat-manual-field">
-          <label>${escapeHtml(field.label)}</label>
-          <input id="${prefix}stat-${field.key}" class="stat-manual-input" inputmode="decimal" value="${escapeHtml(formatThousands(value))}" ${ro} data-action="format-stat" placeholder="예: 1" />
-          <p class="helper" style="margin:2px 0 0">해당 단위당 수행 횟수</p>
-        </div>
-      `;
-    }
-    if (field.key === "annualFrequency") {
-      return `
-        <div class="field">
-          <label>${escapeHtml(field.label)}</label>
-          <input id="${prefix}stat-${field.key}" class="stat-derived-input readonly" value="${escapeHtml(formatThousands(value))}" readonly data-derived="annualFrequency" placeholder="단위×횟수로 자동 계산" />
-          <p class="helper" style="margin:2px 0 0">연간 수행 횟수 = 빈도 횟수 × 환산계수(일 365 / 주 52 / 월 12 / 년 1)</p>
-        </div>
-      `;
-    }
     return `
       <div class="field">
         <label>${escapeHtml(field.label)}</label>
@@ -1230,14 +1203,45 @@
     `;
   }
 
+  function renderFrequencyFields(prefix, statistics, editable = true) {
+    const stats = normalizeStatistics(statistics);
+    const ro = editable ? "" : "readonly class='readonly'";
+    return `
+      <section class="task-add-panel frequency-panel">
+        <div class="frequency-row">
+          <div class="field stat-manual-field frequency-item">
+            <label>빈도 단위</label>
+            ${frequencyUnitSelectHtml(prefix, stats.frequencyUnit, editable)}
+          </div>
+          <div class="field stat-manual-field frequency-item">
+            <label>빈도 횟수</label>
+            <input id="${prefix}stat-frequencyCount" class="stat-manual-input" inputmode="decimal" value="${escapeHtml(formatThousands(stats.frequencyCount || ""))}" ${ro} data-action="format-stat" placeholder="예: 1" />
+          </div>
+          <div class="field frequency-item">
+            <label>연간 빈도</label>
+            <input id="${prefix}stat-annualFrequency" class="stat-derived-input readonly" value="${escapeHtml(formatThousands(stats.annualFrequency || ""))}" readonly data-derived="annualFrequency" placeholder="자동 계산" />
+          </div>
+        </div>
+        <p class="helper frequency-hint">수행 빈도 · 연간 빈도 = 횟수 × 환산계수(일 365 / 주 52 / 월 12 / 년 1)</p>
+      </section>
+    `;
+  }
+
   function renderStatisticsFields(prefix, statistics, editable = true) {
     const stats = normalizeStatistics(statistics);
-    const fields = TASK_STAT_FIELDS.map((field) => renderStatFieldInput(prefix, field, stats, editable)).join("");
+    const byKey = Object.fromEntries(TASK_STAT_FIELDS.map((field) => [field.key, field]));
+    const mainFields = PERF_METRIC_MAIN_KEYS.map((key) =>
+      renderMetricFieldInput(prefix, byKey[key], stats, editable)
+    ).join("");
+    const footerFields = PERF_METRIC_FOOTER_KEYS.map((key) =>
+      renderMetricFieldInput(prefix, byKey[key], stats, editable)
+    ).join("");
     return `
       <section class="task-add-panel">
-        <h4>통계</h4>
-        <p class="helper" style="margin-top:-2px">빈도 단위·횟수를 입력하면 <strong>연간 빈도</strong>가 자동 계산되고, 빈 통계 칸은 As-Is/To-Be 기준 BPA 성과 산식으로 채웁니다. 이미 입력된 값(빈도 제외 자동 산출 항목 외)은 유지합니다.</p>
-        <div class="grid stats-form-grid">${fields}</div>
+        <h4>성과 지표</h4>
+        <p class="helper" style="margin-top:-2px">빈 칸은 As-Is/To-Be 프로세스와 수행 빈도 기준으로 BPA 성과 산식으로 자동 채웁니다. 이미 입력된 값은 유지합니다.</p>
+        <div class="grid stats-form-grid">${mainFields}</div>
+        <div class="grid stats-footer-grid">${footerFields}</div>
       </section>
     `;
   }
@@ -1656,16 +1660,17 @@
           <div class="field"><label>시작일</label><input id="task-start" type="date" value="${escapeHtml(draft.startDate || "")}" /></div>
           <div class="field"><label>완료일</label><input id="task-end" type="date" value="${escapeHtml(draft.endDate || "")}" /></div>
         </div>
-        <div class="field"><label>과제 목표</label><textarea id="task-goal" placeholder="달성하려는 과제 목표">${escapeHtml(draft.goal || "")}</textarea></div>
+        <div class="field"><label>과제 목표</label><input id="task-goal" placeholder="달성하려는 과제 목표" value="${escapeHtml(draft.goal || "")}" /></div>
         <div class="grid" style="grid-template-columns:1fr 1fr">
           <div class="field difficulty-field"><label>난이도</label>${difficultySelectHtml("task-difficulty", draft.difficulty || "중")}</div>
           <div class="field difficulty-field"><label>작업 상태</label>${workStatusSelectHtml("task-work-status", draft.workStatus || "개발")}</div>
         </div>
       </section>
-      ${renderProcessEditor(draft.asIsProcess || "", draft.toBeProcess || "", true, { midSave: true })}
-      ${renderHierarchyFields("task-", draft.hierarchy, true)}
-      ${renderStatisticsFields("task-", draft.statistics, true)}
       ${renderMembersFields(members, true, { midSave: true })}
+      ${renderHierarchyFields("task-", draft.hierarchy, true)}
+      ${renderProcessEditor(draft.asIsProcess || "", draft.toBeProcess || "", true, { midSave: true })}
+      ${renderFrequencyFields("task-", draft.statistics, true)}
+      ${renderStatisticsFields("task-", draft.statistics, true)}
       <div class="process-flow-stack">
         <div id="task-asis-flow">${renderProcessFlow("As-Is (세로 흐름)", draft.asIsProcess || "", "vertical", "asis")}</div>
         <div id="task-tobe-flow">${renderProcessFlow("To-Be (세로 흐름)", draft.toBeProcess || "", "vertical", "tobe")}</div>
@@ -1861,16 +1866,17 @@
           <div class="field"><label>시작일</label><input id="detail-task-start" type="date" value="${escapeHtml(task.startDate || "")}" ${editable ? "" : "readonly class='readonly'"} /></div>
           <div class="field"><label>완료일</label><input id="detail-task-end" type="date" value="${escapeHtml(task.endDate || "")}" ${editable ? "" : "readonly class='readonly'"} /></div>
         </div>
-        <div class="field"><label>과제 목표</label><textarea id="detail-task-goal" ${editable ? "" : "readonly class='readonly'"}>${escapeHtml(task.goal || "")}</textarea></div>
+        <div class="field"><label>과제 목표</label><input id="detail-task-goal" value="${escapeHtml(task.goal || "")}" ${editable ? "" : "readonly class='readonly'"} placeholder="달성하려는 과제 목표" /></div>
         <div class="grid" style="grid-template-columns:1fr 1fr">
           <div class="field difficulty-field"><label>난이도</label>${difficultySelectHtml("detail-task-difficulty", task.difficulty, !editable)}</div>
           <div class="field difficulty-field"><label>작업 상태</label>${workStatusSelectHtml("detail-task-work-status", task.workStatus || "개발", !editable)}</div>
         </div>
       </section>
-      ${renderProcessEditor(task.asIsProcess || "", task.toBeProcess || "", editable, { midSave: true })}
-      ${renderHierarchyFields("detail-task-", task.hierarchy, editable)}
-      ${renderStatisticsFields("detail-task-", task.statistics, editable)}
       ${renderMembersFields(members, editable, { midSave: true })}
+      ${renderHierarchyFields("detail-task-", task.hierarchy, editable)}
+      ${renderProcessEditor(task.asIsProcess || "", task.toBeProcess || "", editable, { midSave: true })}
+      ${renderFrequencyFields("detail-task-", task.statistics, editable)}
+      ${renderStatisticsFields("detail-task-", task.statistics, editable)}
       <div class="process-flow-stack">
         <div id="task-asis-flow">${renderProcessFlow("As-Is (세로 흐름)", task.asIsProcess, "vertical", "asis")}</div>
         <div id="task-tobe-flow">${renderProcessFlow("To-Be (세로 흐름)", task.toBeProcess, "vertical", "tobe")}</div>

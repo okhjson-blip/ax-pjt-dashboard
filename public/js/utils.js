@@ -329,8 +329,26 @@ const TASK_STAT_FIELDS = [
   { key: "frequencyUnit", csv: "frequency_unit", label: "빈도 단위", numeric: false },
   { key: "frequencyCount", csv: "frequency_count", label: "빈도 횟수", numeric: true },
   { key: "annualFrequency", csv: "annual_frequency", label: "연간 빈도", numeric: true },
-  { key: "estimatedDevelopmentCost", csv: "estimated_development_cost", label: "예상 개발비용(원)", numeric: true }
+  {
+    key: "estimatedDevelopmentCost",
+    csv: "estimated_development_cost",
+    label: "추정 외주개발비용(원)",
+    numeric: true
+  }
 ];
+
+const PERF_METRIC_MAIN_KEYS = [
+  "automationRate",
+  "timeSavings",
+  "timeSavingsRate",
+  "asIsTotalTime",
+  "toBeTotalTime",
+  "asIsWaitingHours",
+  "fteEquivalent",
+  "annualSavingsHours"
+];
+
+const PERF_METRIC_FOOTER_KEYS = ["totalProcesses", "automatedProcessCount", "estimatedDevelopmentCost"];
 
 function parseNumericValue(value) {
   const text = String(value ?? "").trim().replace(/,/g, "");
