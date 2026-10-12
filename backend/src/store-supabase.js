@@ -1,6 +1,7 @@
 const { getSupabaseAdmin } = require("./supabase");
 const { createSeedData } = require("./seed-data");
 const { uid } = require("./store-utils");
+const { normalizePmo } = require("./pmo");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -35,7 +36,7 @@ function mapCompanyRow(row, participants = []) {
       kickoffDate: row.kickoff_date || "",
       endDate: row.end_date || ""
     },
-    pmo: extras.pmo || { name: row.pmo_name || "", email: row.pmo_email || "" },
+    pmo: normalizePmo(extras.pmo || { name: row.pmo_name || "", email: row.pmo_email || "" }),
     notices: extras.notices || [],
     participantUpdateRequest: extras.participantUpdateRequest || {
       pending: false,
@@ -255,7 +256,7 @@ async function writeData(data) {
       kickoff_date: company.schedule?.kickoffDate || null,
       end_date: company.schedule?.endDate || null,
       extras: {
-        pmo: company.pmo || { name: "", email: "" },
+        pmo: normalizePmo(company.pmo),
         notices: company.notices || [],
         participantUpdateRequest: company.participantUpdateRequest || {
           pending: false,

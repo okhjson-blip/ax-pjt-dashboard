@@ -8,6 +8,7 @@ const {
   companyWeeklyReportId
 } = require("./weekly-report");
 const { draftNarratives } = require("./report-draft");
+const { matchesCompanyPmo } = require("./pmo");
 
 async function applyNarrativeDraft(report, company, { onlyBlank = false } = {}) {
   if (!report?.body) return report;
@@ -116,6 +117,16 @@ function createRouter() {
         (p) => p.name === name && String(p.email).toLowerCase() === email
       );
 
+      if (matchesCompanyPmo(company, name, email)) {
+        return res.json({
+          role: "pmo",
+          name,
+          email,
+          companyId: company.id,
+          participantId: participant?.id || null
+        });
+      }
+
       if (!participant) {
         return res.status(404).json({
           error: "등록된 정보가 없습니다. 부서를 입력해 신규 등록할 수 있습니다.",
@@ -149,6 +160,12 @@ function createRouter() {
       const company = data.companies.find((c) => c.id === companyId);
       if (!company) {
         return res.status(404).json({ error: "협력사를 찾을 수 없습니다." });
+      }
+
+      if (matchesCompanyPmo(company, name, email)) {
+        return res.status(409).json({
+          error: "협력사 PMO로 등록된 계정입니다. 부서 등록 없이 로그인해 주세요."
+        });
       }
 
       const exists = company.participants.find((p) => String(p.email).toLowerCase() === email);

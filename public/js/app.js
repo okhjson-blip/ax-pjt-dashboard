@@ -216,12 +216,28 @@
     return state.auth?.role === "admin";
   }
 
+  function isPmo() {
+    return state.auth?.role === "pmo";
+  }
+
   function isMine(participant) {
     return Boolean(participant?.id && participant.id === state.auth?.participantId);
   }
 
+  function companyOfParticipant(participant) {
+    if (!participant) return null;
+    return state.companies.find((c) => (c.participants || []).some((p) => p.id === participant.id)) || null;
+  }
+
+  function canBrowseCompany(company) {
+    return isAdmin() || (isPmo() && company?.id === state.auth?.companyId);
+  }
+
   function canViewParticipant(participant) {
-    return isAdmin() || isMine(participant);
+    if (!participant) return false;
+    if (isAdmin() || isMine(participant)) return true;
+    if (!isPmo()) return false;
+    return companyOfParticipant(participant)?.id === state.auth?.companyId;
   }
 
   function canManageParticipant(participant) {
@@ -229,6 +245,10 @@
   }
 
   function lockToOwnParticipant() {
+    if (isPmo() && state.auth?.companyId) {
+      state.selectedCompanyId = state.auth.companyId;
+      return;
+    }
     if (isAdmin() || !state.auth?.participantId) return;
     if (state.auth.companyId) state.selectedCompanyId = state.auth.companyId;
     state.selectedParticipantId = state.auth.participantId;
@@ -386,8 +406,9 @@
         <p class="helper">등록된 정보가 없을 때 신규 참여자로 등록됩니다.</p>
       </div>
       <div id="login-error" class="error-text"></div>
-      <button class="btn primary" style="width:100%" data-action="participant-login">참여자 로그인</button>
+      <button class="btn primary" style="width:100%" data-action="participant-login">참여자·PMO 로그인</button>
       <button class="btn ghost hidden" style="width:100%; margin-top:8px" data-action="participant-register">신규 등록하고 접속</button>
+      <p class="helper" style="margin-top:14px">참여자는 등록된 이름·이메일로, 협력사 PMO는 PMO 표에 등록된 이름·이메일로 로그인합니다.</p>
     `;
   }
 
@@ -405,7 +426,7 @@
             <span class="brand-mark">AX</span>
             <div>
               <div class="side-title">AI 프로젝트<br />통합 대시보드</div>
-              <div class="side-sub">${isAdmin() ? "관리자 모드" : "참여자 모드"}</div>
+              <div class="side-sub">${isAdmin() ? "관리자 모드" : isPmo() ? "PMO 모드" : "참여자 모드"}</div>
             </div>
           </div>
           <nav class="nav">
@@ -437,7 +458,7 @@
           }
           <div class="side-footer">
             <strong>${escapeHtml(state.auth.name)}</strong><br />
-            ${isAdmin() ? "전체 협력사/참여자 관리 권한" : "본인 데이터 편집 권한"}<br />
+            ${isAdmin() ? "전체 협력사/참여자 관리 권한" : isPmo() ? "소속 협력사 허브·개인 대시보드 조회 권한" : "본인 데이터 편집 권한"}<br />
             <button class="btn ghost small" style="margin-top:10px; width:100%" data-action="logout">로그아웃</button>
           </div>
         </aside>
@@ -557,8 +578,7 @@
                 <div class="date-row schedule-row"><span>종료일</span><b>${c.schedule?.endDate || "-"}</b></div>
               </div>
               <div class="schedule-meta-group">
-                <div class="date-row pmo-row"><span>PMO</span><b>${c.pmo?.name ? escapeHtml(c.pmo.name) : '<span class="pmo-empty">미등록</span>'}</b></div>
-                <div class="date-row pmo-row"><span>PMO 메일</span><b>${c.pmo?.email ? escapeHtml(c.pmo.email) : "-"}</b></div>
+                ${renderPmoLines(c)}
                 <div class="date-row participant-count-row"><span>참여자수</span><b>${participantCount}명</b></div>
                 <div class="date-row participant-count-row"><span>과제수</span><b>${taskCount}건</b></div>
               </div>
@@ -733,6 +753,72 @@
     `;
   }
 
+  function pmoMembersOf(company) {
+    return normalizePmo(company?.pmo).members;
+  }
+
+  function renderPmoLines(company) {
+    const rows = pmoMembersOf(company);
+    if (!rows.length) {
+      return '<div class="date-row pmo-row"><span>PMO</span><b><span class="pmo-empty">미등록</span></b></div>';
+    }
+    return rows
+      .map((row) => {
+        const text = [row.name, row.position, row.email].filter(Boolean).join(" ");
+        return `<div class="date-row pmo-row"><span>PMO</span><b>${escapeHtml(text || "-")}</b></div>`;
+      })
+      .join("");
+  }
+
+  function renderPmoTable(company) {
+    const rows = pmoMembersOf(company);
+    if (!rows.length) return '<p class="helper pmo-empty">PMO 미등록</p>';
+    return `
+      <table class="pmo-table">
+        <thead>
+          <tr><th>이름</th><th>직위</th><th>이메일</th></tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (row) => `
+            <tr>
+              <td>${escapeHtml(row.name || "-")}</td>
+              <td>${escapeHtml(row.position || "-")}</td>
+              <td>${escapeHtml(row.email || "-")}</td>
+            </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function renderPmoPanel(company) {
+    return `
+      <div class="card card-pad">
+        <div class="section-title">
+          <div>
+            <h3>협력사 PMO</h3>
+            <p>등록된 이름과 이메일로 PMO 로그인할 수 있습니다.</p>
+          </div>
+        </div>
+        ${renderPmoTable(company)}
+      </div>
+    `;
+  }
+
+  function renderPmoEditRow(row = { name: "", position: "", email: "" }) {
+    return `
+      <tr class="pmo-edit-row">
+        <td><input class="pmo-name" value="${escapeHtml(row.name || "")}" placeholder="이름" /></td>
+        <td><input class="pmo-position" value="${escapeHtml(row.position || "")}" placeholder="직위" /></td>
+        <td><input class="pmo-email" type="email" value="${escapeHtml(row.email || "")}" placeholder="pmo@company.com" /></td>
+        <td><button type="button" class="btn ghost small" data-action="remove-pmo-row">삭제</button></td>
+      </tr>
+    `;
+  }
+
   function renderCompanyHub() {
     const company = currentCompany();
     if (!company) return '<div class="empty">등록된 협력사가 없습니다. 협력사를 추가해 프로젝트를 시작하세요.</div>';
@@ -759,6 +845,7 @@
               ${renderStat("총 과제", taskCount)}
             </div>
           </div>
+          ${renderPmoPanel(company)}
           ${renderNoticesPanel(company)}
           ${renderOpsCheckPanel(company)}
         </div>
@@ -811,7 +898,7 @@
     `;
   }
 
-  function renderAdminParticipantOverview(company) {
+  function renderAdminParticipantOverview(company, { canDelete = true } = {}) {
     const rows = company.participants || [];
     return `
       <div class="card card-pad">
@@ -838,7 +925,11 @@
                       ${renderProgress(avgProgress(participant), sched.cls)}
                       <span class="badge ${sched.cls}">${sched.label}</span>
                     </button>
-                    <button type="button" class="btn ghost small danger" data-action="delete-participant" data-company="${company.id}" data-participant="${participant.id}" title="참여자 삭제">삭제</button>
+                    ${
+                      canDelete
+                        ? `<button type="button" class="btn ghost small danger" data-action="delete-participant" data-company="${company.id}" data-participant="${participant.id}" title="참여자 삭제">삭제</button>`
+                        : ""
+                    }
                   </div>
                 `;
                 })
@@ -854,14 +945,15 @@
     lockToOwnParticipant();
     const company = currentCompany();
     if (!company) return '<div class="empty">선택된 협력사가 없습니다.</div>';
+    const browseCompany = canBrowseCompany(company);
     if (!company.participants.length) {
       return `
-        ${isAdmin() ? renderAdminParticipantOverview(company) : ""}
+        ${browseCompany ? renderAdminParticipantOverview(company, { canDelete: isAdmin() }) : ""}
         <div class="empty">선택된 참여자가 없습니다. 협력사 허브에서 참여자를 선택하세요.</div>
       `;
     }
     if (!company.participants.some((p) => p.id === state.selectedParticipantId)) {
-      if (isAdmin()) {
+      if (browseCompany) {
         state.selectedParticipantId = company.participants[0].id;
       } else {
         lockToOwnParticipant();
@@ -887,7 +979,7 @@
 
     return `
       <div class="grid" style="gap:16px">
-        ${isAdmin() ? renderAdminParticipantOverview(company) : ""}
+        ${browseCompany ? renderAdminParticipantOverview(company, { canDelete: isAdmin() }) : ""}
       <div class="grid detail-grid">
         <div class="grid">
           <div class="card card-pad">
@@ -904,7 +996,9 @@
               <p class="helper" style="margin-top:8px">
                 ${
                   viewingCurrent
-                    ? "이번 주 보고를 작성·수정할 수 있습니다. 과거 주차는 저장된 스냅샷을 조회합니다."
+                    ? canEditReport
+                      ? "이번 주 보고를 작성·수정할 수 있습니다. 과거 주차는 저장된 스냅샷을 조회합니다."
+                      : "이번 주 보고를 조회합니다. 과거 주차는 저장된 스냅샷을 조회합니다."
                     : `${week}주차는 읽기 전용입니다. 해당 주에 저장한 진척·보고만 표시됩니다.`
                 }
               </p>
@@ -932,7 +1026,9 @@
                       ? "과제 상세·일정 상태를 확인하고, 진척도는 주간 보고에서 수정합니다."
                       : isAdmin()
                         ? "참여자 과제는 열람·피드백만 가능합니다. 주간 보고 본문은 참여자만 수정합니다."
-                        : "본인 과제만 수정·저장할 수 있습니다."
+                        : isPmo()
+                          ? "소속 협력사 과제는 열람만 가능합니다. 주간 보고 본문은 해당 참여자만 수정합니다."
+                          : "본인 과제만 수정·저장할 수 있습니다."
                     : `${week}주차 기준 진척·작성 여부를 표시합니다.`
                 }</p>
               </div>
@@ -1777,20 +1873,35 @@
     const company = ensureCompanyFields(
       state.companies.find((c) => c.id === state.form.companyId) || currentCompany()
     );
+    const members = pmoMembersOf(company);
+    const editRows = members.length ? members : [{ name: "", position: "", email: "" }];
     return modalShell(
       "일정 / PMO 편집",
       `
-      <p class="helper" style="margin-top:0">${escapeHtml(company.name)}의 일정과 PMO 정보를 수정합니다.</p>
+      <p class="helper" style="margin-top:0">${escapeHtml(company.name)}의 일정과 PMO 정보를 수정합니다. PMO 로그인은 이름과 이메일이 표의 행과 일치할 때 부여됩니다.</p>
       <div class="field"><label>시작일</label><input id="schedule-start" type="date" value="${company.schedule?.startDate || ""}" /></div>
       <div class="field"><label>KickOff</label><input id="schedule-kickoff" type="date" value="${company.schedule?.kickoffDate || ""}" /></div>
       <div class="field"><label>종료일</label><input id="schedule-end" type="date" value="${company.schedule?.endDate || ""}" /></div>
-      <div class="field"><label>PMO 이름</label><input id="pmo-name" value="${escapeHtml(company.pmo?.name || "")}" placeholder="예: 한지민" /></div>
-      <div class="field"><label>PMO 이메일</label><input id="pmo-email" type="email" value="${escapeHtml(company.pmo?.email || "")}" placeholder="pmo@example.com" /></div>
+      <div class="field">
+        <label>PMO</label>
+        <div class="table-scroll">
+          <table class="pmo-edit-table">
+            <thead>
+              <tr><th>이름</th><th>직위</th><th>이메일</th><th></th></tr>
+            </thead>
+            <tbody id="pmo-rows">
+              ${editRows.map((row) => renderPmoEditRow(row)).join("")}
+            </tbody>
+          </table>
+        </div>
+        <button type="button" class="btn ghost small" data-action="add-pmo-row" style="margin-top:8px">행 추가</button>
+      </div>
     `,
       `
       <button class="btn ghost" data-action="close-modal">취소</button>
       <button class="btn primary" data-action="save-schedule">저장</button>
-    `
+    `,
+      true
     );
   }
 
@@ -2033,7 +2144,7 @@
         state.selectedCompanyId = auth.companyId;
         state.selectedParticipantId = auth.participantId;
         state.view = "company";
-        toast("참여자 모드로 로그인했습니다.");
+        toast(auth.role === "pmo" ? "PMO 모드로 로그인했습니다." : "참여자 모드로 로그인했습니다.");
         render();
         maybeShowParticipantUpdatePopup();
       } catch (err) {
@@ -2069,6 +2180,22 @@
       state.view = "login";
       toast("로그아웃했습니다.");
       render();
+    }
+
+    if (action === "add-pmo-row") {
+      const list = document.getElementById("pmo-rows");
+      if (!list) return;
+      list.insertAdjacentHTML("beforeend", renderPmoEditRow());
+    }
+
+    if (action === "remove-pmo-row") {
+      const row = el.closest(".pmo-edit-row");
+      const list = document.getElementById("pmo-rows");
+      if (!row || !list) return;
+      row.remove();
+      if (!list.querySelector(".pmo-edit-row")) {
+        list.insertAdjacentHTML("beforeend", renderPmoEditRow());
+      }
     }
 
     if (action === "add-task-member") {
@@ -2273,7 +2400,8 @@
     }
 
     if (action === "select-person") {
-      if (!isAdmin()) {
+      const target = allParticipants().find((row) => row.participant.id === el.dataset.participant)?.participant;
+      if (!canViewParticipant(target)) {
         window.alert("본인 과제만 개인 대시보드에서 열람할 수 있습니다.");
         return;
       }
@@ -2505,7 +2633,7 @@
             kickoffDate: kickoff.toISOString().slice(0, 10),
             endDate: end.toISOString().slice(0, 10)
           },
-          pmo: { name: "", email: "" },
+          pmo: { members: [] },
           notices: [],
           participantUpdateRequest: {
             pending: false,
@@ -2714,10 +2842,21 @@
         return toast("종료일은 시작일보다 늦어야 합니다.");
       }
       company.schedule = { startDate, kickoffDate, endDate };
-      company.pmo = {
-        name: document.getElementById("pmo-name")?.value.trim() || "",
-        email: document.getElementById("pmo-email")?.value.trim() || ""
-      };
+      const members = [...document.querySelectorAll("#pmo-rows .pmo-edit-row")]
+        .map((row) => ({
+          name: row.querySelector(".pmo-name")?.value.trim() || "",
+          position: row.querySelector(".pmo-position")?.value.trim() || "",
+          email: row.querySelector(".pmo-email")?.value.trim() || ""
+        }))
+        .filter((row) => row.name || row.position || row.email);
+      if (members.some((row) => !row.name || !row.email)) {
+        return toast("PMO는 이름과 이메일을 함께 입력해 주세요.");
+      }
+      const emails = members.map((row) => row.email.toLowerCase());
+      if (new Set(emails).size !== emails.length) {
+        return toast("같은 이메일의 PMO가 두 번 입력되었습니다.");
+      }
+      company.pmo = { members };
       await persist("협력사 일정과 PMO 정보를 저장했습니다.");
       closeModal();
     }

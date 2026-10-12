@@ -6,7 +6,7 @@ function createSeedData() {
         id: "c1",
         name: "AX 제조혁신",
         schedule: { startDate: "2026-07-06", kickoffDate: "2026-07-08", endDate: "2026-09-04" },
-        pmo: { name: "한지민", email: "jimin.han@example.com" },
+        pmo: { members: [{ name: "한지민", position: "", email: "jimin.han@example.com" }] },
         notices: [
           {
             id: "n1",
@@ -135,7 +135,7 @@ function createSeedData() {
         id: "c2",
         name: "스마트 리테일랩",
         schedule: { startDate: "2026-07-13", kickoffDate: "2026-07-15", endDate: "2026-09-11" },
-        pmo: { name: "오세린", email: "serin.oh@example.com" },
+        pmo: { members: [{ name: "오세린", position: "", email: "serin.oh@example.com" }] },
         notices: [],
         participantUpdateRequest: { pending: false, message: "", requestedAt: null, acknowledgedAt: null },
         participants: [
@@ -184,7 +184,7 @@ function createSeedData() {
         id: "c3",
         name: "헬스케어 데이터팀",
         schedule: { startDate: "2026-07-20", kickoffDate: "2026-07-22", endDate: "2026-09-18" },
-        pmo: { name: "", email: "" },
+        pmo: { members: [] },
         notices: [],
         participantUpdateRequest: { pending: false, message: "", requestedAt: null, acknowledgedAt: null },
         participants: []

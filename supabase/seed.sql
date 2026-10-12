@@ -7,7 +7,7 @@ insert into public.companies (id, name, start_date, kickoff_date, end_date, extr
   (
     'c1', 'AX 제조혁신', '2026-07-06', '2026-07-08', '2026-09-04',
     '{
-      "pmo": {"name": "한지민", "email": "jimin.han@example.com"},
+      "pmo": {"members": [{"name": "한지민", "position": "", "email": "jimin.han@example.com"}]},
       "notices": [
         {
           "id": "n1",
@@ -27,7 +27,7 @@ insert into public.companies (id, name, start_date, kickoff_date, end_date, extr
   (
     'c2', '스마트 리테일랩', '2026-07-13', '2026-07-15', '2026-09-11',
     '{
-      "pmo": {"name": "오세린", "email": "serin.oh@example.com"},
+      "pmo": {"members": [{"name": "오세린", "position": "", "email": "serin.oh@example.com"}]},
       "notices": [],
       "participantUpdateRequest": {
         "pending": false,
@@ -40,7 +40,7 @@ insert into public.companies (id, name, start_date, kickoff_date, end_date, extr
   (
     'c3', '헬스케어 데이터팀', '2026-07-20', '2026-07-22', '2026-09-18',
     '{
-      "pmo": {"name": "", "email": ""},
+      "pmo": {"members": []},
       "notices": [],
       "participantUpdateRequest": {
         "pending": false,

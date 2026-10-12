@@ -829,8 +829,34 @@ input[type="range"].range-gray { accent-color: var(--muted); }
   min-height: 1.25em;
 }
 
-.date-row.participant-count-row {
-  margin: 0;
+.pmo-table,
+.pmo-edit-table {
+  margin: 0 0 8px;
+}
+
+.pmo-table th,
+.pmo-table td,
+.pmo-edit-table th,
+.pmo-edit-table td {
+  padding: 8px;
+}
+
+.pmo-edit-table input {
+  width: 100%;
+  min-width: 0;
+}
+
+.pmo-edit-table td:last-child {
+  width: 72px;
+  white-space: nowrap;
+}
+
+.schedule-box .pmo-table {
+  font-size: 13px;
+}
+
+.schedule-box .pmo-empty {
+  margin: 0 0 8px;
 }
 
 .schedule-actions {

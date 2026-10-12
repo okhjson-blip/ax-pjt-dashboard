@@ -818,11 +818,74 @@ function ensureTaskFields(task) {
   return task;
 }
 
+const PMO_POSITION_TITLES = [
+  "부사장",
+  "본부장",
+  "상무보",
+  "상무",
+  "전무",
+  "이사",
+  "부장",
+  "차장",
+  "과장",
+  "대리",
+  "주임",
+  "사원",
+  "팀장",
+  "실장",
+  "수석",
+  "책임",
+  "선임"
+];
+
+function splitLegacyPmoList(value) {
+  return String(value || "")
+    .split(/[,，、;；|/]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function splitLegacyNamePosition(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return { name: "", position: "" };
+  for (const title of PMO_POSITION_TITLES) {
+    const matched = text.match(new RegExp(`^(.+?)\\s+${title}$`));
+    if (matched && matched[1].trim()) return { name: matched[1].trim(), position: title };
+  }
+  return { name: text, position: "" };
+}
+
+function normalizePmo(pmo) {
+  const source = pmo && typeof pmo === "object" ? pmo : {};
+  if (Array.isArray(source.members)) {
+    return {
+      members: source.members
+        .map((row) => ({
+          name: String(row?.name || "").trim(),
+          position: String(row?.position || "").trim(),
+          email: String(row?.email || "").trim()
+        }))
+        .filter((row) => row.name || row.position || row.email)
+    };
+  }
+  const names = splitLegacyPmoList(source.name);
+  const emails = splitLegacyPmoList(source.email);
+  const count = Math.max(names.length, emails.length);
+  const members = [];
+  for (let index = 0; index < count; index += 1) {
+    const parsed = splitLegacyNamePosition(names[index] || "");
+    members.push({
+      name: parsed.name,
+      position: parsed.position,
+      email: emails[index] || ""
+    });
+  }
+  return { members: members.filter((row) => row.name || row.position || row.email) };
+}
+
 function ensureCompanyFields(company) {
   if (!company) return null;
-  company.pmo ??= { name: "", email: "" };
-  company.pmo.name ??= "";
-  company.pmo.email ??= "";
+  company.pmo = normalizePmo(company.pmo);
   company.notices ??= [];
   company.participantUpdateRequest ??= {
     pending: false,
