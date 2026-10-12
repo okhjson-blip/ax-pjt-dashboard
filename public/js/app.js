@@ -1040,7 +1040,7 @@
               <div class="field">
                 <label>차주 계획 *</label>
                 <textarea id="task-next-plan" placeholder="한 줄에 한 항목씩 입력하세요." ${canEditReport ? "" : "readonly class='readonly'"}>${escapeHtml(reportView.nextWeekPlan || "")}</textarea>
-                <p class="helper" style="margin-top:6px">PDF 차주 확인사항 초안은 줄 단위로 만들어집니다.</p>
+                <p class="helper" style="margin-top:6px">협력사 주간 레포트의 차주 계획 초안은 이 내용을 참고합니다.</p>
               </div>
               <div class="field">
                 <label>컨설턴트 피드백</label>
@@ -2377,7 +2377,7 @@
         state.form.reportDoc = result.report;
         state.form.reportRevising = true;
         render();
-        toast("비어 있는 항목만 과제 주간보고에서 다시 채웠습니다.");
+        toast("운영 요약을 최신 수치로 갱신하고, 비어 있는 항목만 과제 주간보고에서 채웠습니다.");
       } catch (err) {
         toast(err.message || "초안 재조립에 실패했습니다.");
       }
@@ -2403,49 +2403,31 @@
       toast("개정 초안 모드입니다. 수정 후 다시 발행하세요.");
     }
 
-    if (action === "report-add-summary") {
+    if (action === "regenerate-report-narrative") {
+      const company = currentCompany();
       const doc = syncWeeklyReportFromDom(state.form.reportDoc);
-      doc.body.summaryRows = doc.body.summaryRows || [];
-      doc.body.summaryRows.push({ taskId: "", deliverable: "", owner: "", status: "개발", progressNote: "" });
-      render();
-    }
-    if (action === "report-remove-summary") {
-      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
-      doc.body.summaryRows.splice(Number(el.dataset.index), 1);
-      render();
-    }
-    if (action === "report-add-section") {
-      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
-      doc.body.sections = doc.body.sections || [];
-      doc.body.sections.push(emptyEditorSection());
-      render();
-    }
-    if (action === "report-remove-section") {
-      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
-      doc.body.sections.splice(Number(el.dataset.index), 1);
-      render();
-    }
-    if (action === "report-add-issue") {
-      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
-      doc.body.issues = doc.body.issues || [];
-      doc.body.issues.push({ item: "", content: "", status: "미해소" });
-      render();
-    }
-    if (action === "report-remove-issue") {
-      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
-      doc.body.issues.splice(Number(el.dataset.index), 1);
-      render();
-    }
-    if (action === "report-add-check") {
-      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
-      doc.body.checks = doc.body.checks || [];
-      doc.body.checks.push({ text: "", done: false, taskId: "" });
-      render();
-    }
-    if (action === "report-remove-check") {
-      const doc = syncWeeklyReportFromDom(state.form.reportDoc);
-      doc.body.checks.splice(Number(el.dataset.index), 1);
-      render();
+      if (!company || !doc) return toast("레포트 초안이 없습니다.");
+      const hasText = String(doc.body?.weekSummary || "").trim() || String(doc.body?.nextWeekPlan || "").trim();
+      if (
+        hasText &&
+        !window.confirm("금주 요약과 차주 계획 초안을 각 과제의 주간보고 기준으로 다시 작성합니다. 현재 수정한 문장은 바뀝니다.")
+      ) {
+        return;
+      }
+      try {
+        const result = await API.draftCompanyWeeklyNarrative(company.id, doc.weekNumber);
+        doc.body.weekSummary = result.weekSummary || "";
+        doc.body.nextWeekPlan = result.nextWeekPlan || "";
+        doc.body.narrativeSource = result.narrativeSource || "compiled";
+        render();
+        toast(
+          result.narrativeSource === "ai"
+            ? "AI 초안을 다시 작성했습니다. 내용을 수정할 수 있습니다."
+            : "각 과제의 금주 진전·차주 계획으로 초안을 다시 작성했습니다. 내용을 수정할 수 있습니다."
+        );
+      } catch (err) {
+        toast(err.message || "초안 작성에 실패했습니다.");
+      }
     }
 
     if (action === "save-personal") {
@@ -2745,7 +2727,14 @@
 
   document.addEventListener("input", (event) => {
     if (event.target.closest("[data-report-field]") && state.form.reportDoc) {
+      const field = event.target.dataset.reportField;
       syncWeeklyReportFromDom(state.form.reportDoc);
+      if (
+        (field === "body.weekSummary" || field === "body.nextWeekPlan") &&
+        state.form.reportDoc.body
+      ) {
+        state.form.reportDoc.body.narrativeSource = "edited";
+      }
       const preview = document.querySelector(".report-pdf-preview");
       if (preview) preview.innerHTML = renderWeeklyReportPdfHtml(state.form.reportDoc);
     }
@@ -2817,7 +2806,14 @@
 
   document.addEventListener("change", async (event) => {
     if (event.target.closest("[data-report-field]") && state.form.reportDoc) {
+      const field = event.target.dataset.reportField;
       syncWeeklyReportFromDom(state.form.reportDoc);
+      if (
+        (field === "body.weekSummary" || field === "body.nextWeekPlan") &&
+        state.form.reportDoc.body
+      ) {
+        state.form.reportDoc.body.narrativeSource = "edited";
+      }
       const preview = document.querySelector(".report-pdf-preview");
       if (preview) preview.innerHTML = renderWeeklyReportPdfHtml(state.form.reportDoc);
     }

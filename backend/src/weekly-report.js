@@ -1,14 +1,7 @@
 const { uid } = require("./store-utils");
+const { composeWeekSummary, composeNextPlan } = require("./report-draft");
 
 const WORK_STATUSES = ["설계", "개발", "구축", "가동", "운영", "보류"];
-const SECTION_HEADINGS = ["구성", "진행", "이슈", "리뷰 방향", "차주"];
-const OPS_PRIORITY = {
-  stalled: { priority: 1, label: "일정 정체" },
-  overdue: { priority: 2, label: "기한 초과" },
-  "no-tasks": { priority: 3, label: "과제 미등록" },
-  "missing-report": { priority: 4, label: "보고 미작성" },
-  watch: { priority: 5, label: "일정 주의" }
-};
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value ?? null));
@@ -75,53 +68,82 @@ function difficultyWeight(value) {
   return 2;
 }
 
-function avgProgress(participant) {
+function metricReferenceDate(company, weekNumber, now) {
+  const range = consultingWeekRange(company?.schedule?.startDate, weekNumber);
+  const end = new Date(`${range.periodEnd}T12:00:00+09:00`);
+  if (Number.isNaN(end.getTime())) return now;
+  return now.getTime() < end.getTime() ? now : end;
+}
+
+function taskExpectedAt(task, company, now) {
+  const own = elapsedRateFromDates(task.startDate, task.endDate, now);
+  if (own !== null) return own;
+  return elapsedRateFromDates(company?.schedule?.startDate, company?.schedule?.endDate, now);
+}
+
+function participantProgressAt(participant, weekNumber, currentWeek) {
   const tasks = participant?.tasks || [];
   if (!tasks.length) return 0;
   let weightSum = 0;
   let progressSum = 0;
   tasks.forEach((task) => {
+    const view = reportForWeek(task, weekNumber, currentWeek);
+    const progress = view ? Number(view.progress || 0) : 0;
     const w = difficultyWeight(task.difficulty);
     weightSum += w;
-    progressSum += Number(task.progress || 0) * w;
+    progressSum += progress * w;
   });
   return weightSum ? Math.round(progressSum / weightSum) : 0;
 }
 
-function expectedProgressAvg(participant, company) {
+function scheduleAchievementAt(participant, company, weekNumber, currentWeek, now) {
   const tasks = participant?.tasks || [];
   if (!tasks.length) return null;
   let weightSum = 0;
-  let expectedSum = 0;
-  let hasValue = false;
+  let ratioSum = 0;
+  let measurable = 0;
+  let beforeStart = 0;
   tasks.forEach((task) => {
-    const own = elapsedRateFromDates(task.startDate, task.endDate);
-    const expected = own !== null ? own : elapsedRateFromDates(company?.schedule?.startDate, company?.schedule?.endDate);
+    const expected = taskExpectedAt(task, company, now);
     if (expected === null) return;
-    hasValue = true;
+    if (expected === 0) {
+      beforeStart += 1;
+      return;
+    }
+    const view = reportForWeek(task, weekNumber, currentWeek);
+    const progress = view ? Number(view.progress || 0) : 0;
     const w = difficultyWeight(task.difficulty);
     weightSum += w;
-    expectedSum += expected * w;
+    ratioSum += (progress / expected) * w;
+    measurable += 1;
   });
-  if (!hasValue || !weightSum) return null;
-  return Math.round(expectedSum / weightSum);
+  if (measurable && weightSum) return Math.round((ratioSum / weightSum) * 100);
+  if (beforeStart && beforeStart === tasks.length) return 100;
+  return null;
 }
 
-function scheduleReason(company, participant) {
-  if (!participant?.tasks?.length) return { reason: "no-tasks", diff: 0, label: "과제없음" };
-  const actual = avgProgress(participant);
-  const expected = expectedProgressAvg(participant, company);
-  if (expected === null) return { reason: "no-schedule", diff: 0, label: "일정미설정" };
-  const diff = actual - expected;
-  if (diff >= 0) return { reason: "ok", diff, label: "양호" };
-  if (diff >= -15) return { reason: "watch", diff, label: "정상" };
-  return { reason: "stalled", diff, label: "정체" };
-}
-
-function isTaskOverdue(task, now = new Date()) {
-  if (!task?.endDate || Number(task.progress || 0) >= 100) return false;
-  const end = new Date(`${task.endDate}T23:59:59+09:00`);
-  return !Number.isNaN(end.getTime()) && now > end;
+function companyOpsSummary(company, weekNumber, now = new Date()) {
+  const week = Math.max(1, Number(weekNumber) || 1);
+  const currentWeek = getConsultingWeek(company?.schedule?.startDate, now);
+  const ref = metricReferenceDate(company, week, now);
+  const participants = company?.participants || [];
+  const taskCount = participants.reduce((sum, participant) => sum + (participant.tasks || []).length, 0);
+  const participantCount = participants.length;
+  const progress = participantCount
+    ? Math.round(
+        participants.reduce((sum, participant) => sum + participantProgressAt(participant, week, currentWeek), 0) /
+          participantCount
+      )
+    : 0;
+  const rates = participants
+    .map((participant) => scheduleAchievementAt(participant, company, week, currentWeek, ref))
+    .filter((value) => value !== null);
+  return {
+    taskCount,
+    participantCount,
+    progress,
+    scheduleGoalRate: rates.length ? Math.round(rates.reduce((sum, value) => sum + value, 0) / rates.length) : null
+  };
 }
 
 function reportForWeek(task, weekNumber, currentWeek) {
@@ -152,70 +174,39 @@ function reportForWeek(task, weekNumber, currentWeek) {
   };
 }
 
-function taskOwnerLabel(task, participant) {
-  const owner = (task.members || []).find((m) => m.isOwner && m.name);
-  if (owner?.name) {
-    const role = owner.role || owner.position || "";
-    return role ? `${owner.name} (${role})` : owner.name;
-  }
-  if (participant?.dept && participant?.name) return `${participant.dept} / ${participant.name}`;
-  return participant?.name || participant?.dept || "";
+function taskAssignee(task, participant) {
+  const members = Array.isArray(task?.members) ? task.members : [];
+  const owner =
+    members.find((member) => member && member.isOwner && String(member.name || "").trim()) ||
+    members.find((member) => member && String(member.name || "").trim());
+  return {
+    ownerName: String(owner?.name || participant?.name || "").trim(),
+    dept: String(participant?.dept || "").trim()
+  };
 }
 
-function compositionText(task) {
-  const parts = [];
-  if (task.goal) parts.push(String(task.goal).trim());
-  const h = task.hierarchy || {};
-  const levels = [h.l1, h.l2, h.l3, h.l4].map((v) => String(v || "").trim()).filter(Boolean);
-  if (levels.length) parts.push(levels.join(" > "));
-  if (task.asIsProcess) parts.push(`As-Is: ${String(task.asIsProcess).trim()}`);
-  if (task.toBeProcess) parts.push(`To-Be: ${String(task.toBeProcess).trim()}`);
-  return parts.join("\n");
+function clampProgress(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.min(100, Math.max(0, Math.round(number)));
 }
 
-function splitPlanLines(text) {
-  return String(text || "")
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^[\s\-•●○☐☑]\s*/, "").trim())
-    .filter(Boolean);
-}
-
-function collectOpsIssues(company, weekNumber, currentWeek) {
-  const rows = [];
-  (company?.participants || []).forEach((participant) => {
-    const schedule = scheduleReason(company, participant);
-    const tasks = participant.tasks || [];
-    let code = null;
-    if (schedule.reason === "stalled") code = "stalled";
-    else if (tasks.some((task) => isTaskOverdue(task))) code = "overdue";
-    else if (schedule.reason === "no-tasks") code = "no-tasks";
-    else if (
-      tasks.some((task) => {
-        const view = reportForWeek(task, weekNumber, currentWeek);
-        return !view || !view.reportCompleted;
-      })
-    ) {
-      code = "missing-report";
-    } else if (schedule.reason === "watch" && schedule.diff <= -10) code = "watch";
-
-    if (!code) return;
-    const meta = OPS_PRIORITY[code];
-    rows.push({
-      item: meta.label,
-      content: `${participant.name}${participant.dept ? ` (${participant.dept})` : ""} · ${schedule.label}`,
-      status: "미해소",
-      code
-    });
-  });
-  return rows.sort((a, b) => (OPS_PRIORITY[a.code]?.priority || 9) - (OPS_PRIORITY[b.code]?.priority || 9));
+function emptyOps() {
+  return {
+    taskCount: 0,
+    participantCount: 0,
+    progress: 0,
+    scheduleGoalRate: null
+  };
 }
 
 function emptyBody() {
   return {
-    summaryRows: [],
-    sections: [],
-    issues: [],
-    checks: [],
+    ops: emptyOps(),
+    weekSummary: "",
+    nextWeekPlan: "",
+    narrativeSource: "",
+    taskRows: [],
     footerNote: ""
   };
 }
@@ -247,76 +238,49 @@ function assembleCompanyWeeklyReport(company, weekNumber, now = new Date()) {
   const week = Math.max(1, Number(weekNumber) || 1);
   const currentWeek = getConsultingWeek(company?.schedule?.startDate, now);
   const doc = emptyReportDoc(company, week);
-  const summaryRows = [];
-  const sections = [];
-  const checks = [];
+  const taskRows = [];
   const sourceTasks = [];
 
   (company?.participants || []).forEach((participant) => {
     (participant.tasks || []).forEach((task) => {
       const view = reportForWeek(task, week, currentWeek);
-      const owner = taskOwnerLabel(task, participant);
-      const status = normalizeWorkStatus(view?.workStatus || task.workStatus);
-      const progressNote = (view?.weeklySummary || "").trim();
-      const detail = (view?.weeklyDetail || "").trim() || progressNote;
-      const issues = (view?.weeklyIssues || "").trim();
-      const plan = (view?.nextWeekPlan || "").trim();
-      const review = (view?.instructorFeedback || "").trim();
-
-      summaryRows.push({
-        taskId: task.id,
-        deliverable: task.name || "과제 없음",
-        owner,
-        status,
-        progressNote
+      const assignee = taskAssignee(task, participant);
+      const weeklyProgress = String(view?.weeklySummary || "").trim();
+      const nextPlan = String(view?.nextWeekPlan || "").trim();
+      const progress = view ? clampProgress(view.progress) : 0;
+      taskRows.push({
+        taskId: task.id || "",
+        name: task.name || "과제 없음",
+        ownerName: assignee.ownerName,
+        dept: assignee.dept,
+        periodStart: task.startDate || "",
+        periodEnd: task.endDate || "",
+        progress,
+        weeklyProgress,
+        nextPlan
       });
-
-      sections.push({
-        taskId: task.id,
-        title: task.name || "과제 없음",
-        owner,
-        blocks: [
-          { heading: "구성", text: compositionText(task) },
-          { heading: "진행", text: detail },
-          { heading: "이슈", text: issues },
-          { heading: "리뷰 방향", text: review },
-          { heading: "차주", text: plan }
-        ]
-      });
-
-      splitPlanLines(plan).forEach((text) => {
-        checks.push({ text, done: false, taskId: task.id });
-      });
-
       sourceTasks.push({
         taskId: task.id,
         participantId: participant.id,
         name: task.name,
+        ownerName: assignee.ownerName,
+        dept: assignee.dept,
         weekNumber: week,
         reportCompleted: Boolean(view?.reportCompleted),
-        weeklySummary: progressNote,
-        weeklyDetail: view?.weeklyDetail || "",
-        weeklyIssues: issues,
-        nextWeekPlan: plan
+        progress,
+        weeklySummary: weeklyProgress,
+        nextWeekPlan: nextPlan
       });
     });
   });
 
-  const issues = collectOpsIssues(company, week, currentWeek);
-  issues.forEach((issue) => {
-    if (issue.code === "missing-report") {
-      checks.push({ text: `${issue.content} 주간보고 작성 여부 확인`, done: false });
-    }
-  });
-
   doc.body = {
-    summaryRows,
-    sections,
-    issues: issues.map(({ item, content, status }) => ({ item, content, status })),
-    checks,
-    footerNote: `본 보고는 ${formatPeriodLabel(doc.periodStart, doc.periodEnd)}${
-      doc.location ? ` ${doc.location}` : ""
-    } 기준입니다. 현장 확인으로 수치·계획이 변할 수 있습니다.`
+    ops: companyOpsSummary(company, week, now),
+    weekSummary: composeWeekSummary(company?.name, taskRows),
+    nextWeekPlan: composeNextPlan(company?.name, taskRows),
+    narrativeSource: "compiled",
+    taskRows,
+    footerNote: ""
   };
   doc.source = {
     assembledAt: now.toISOString(),
@@ -338,6 +302,9 @@ function isBlank(value) {
 
 function rowKey(row) {
   if (!row || typeof row !== "object") return "";
+  if (row.taskId && row.nextPlan !== undefined && row.deliverable === undefined && !Array.isArray(row.blocks)) {
+    return `task:${row.taskId}`;
+  }
   if (row.heading) return `heading:${row.heading}`;
   if (row.taskId && Array.isArray(row.blocks)) return `section:${row.taskId}`;
   if (row.taskId && row.deliverable !== undefined) return `summary:${row.taskId}`;
@@ -412,50 +379,115 @@ function mergeAssembledDraft(existing, assembled) {
   merged.periodEnd = isBlank(merged.periodEnd) ? assembled.periodEnd : merged.periodEnd;
   merged.location = isBlank(merged.location) ? assembled.location : merged.location;
   merged.body = mergeEmpty(merged.body || emptyBody(), assembled.body || emptyBody());
+  merged.body.ops = clone(assembled.body?.ops || emptyOps());
   merged.source = assembled.source || merged.source || {};
   merged.status = merged.status === "published" ? "draft" : merged.status || "draft";
   return merged;
 }
 
+function normalizeOps(ops) {
+  if (!ops || typeof ops !== "object" || Array.isArray(ops)) return null;
+  const taskCount = Number(ops.taskCount);
+  const participantCount = Number(ops.participantCount);
+  const progress = Number(ops.progress);
+  if (![taskCount, participantCount, progress].every((value) => Number.isFinite(value))) return null;
+  const rate =
+    ops.scheduleGoalRate == null || ops.scheduleGoalRate === "" ? null : Number(ops.scheduleGoalRate);
+  return {
+    taskCount: Math.max(0, Math.round(taskCount)),
+    participantCount: Math.max(0, Math.round(participantCount)),
+    progress: clampProgress(progress),
+    scheduleGoalRate: Number.isFinite(rate) ? Math.round(rate) : null
+  };
+}
+
+function splitLegacyOwner(owner) {
+  const raw = String(owner || "").trim();
+  const parts = raw.split(/\s*\/\s*/);
+  if (parts.length === 2) {
+    return {
+      dept: parts[0].trim(),
+      ownerName: parts[1].replace(/\s*\([^)]*\)\s*$/, "").trim()
+    };
+  }
+  return { dept: "", ownerName: raw.replace(/\s*\([^)]*\)\s*$/, "").trim() };
+}
+
+function blockText(section, heading) {
+  const block = (section?.blocks || []).find((item) => item?.heading === heading);
+  return String(block?.text || "").trim();
+}
+
+function normalizeTaskRow(row) {
+  return {
+    taskId: row?.taskId || "",
+    name: row?.name || "",
+    ownerName: row?.ownerName || "",
+    dept: row?.dept || "",
+    periodStart: row?.periodStart || "",
+    periodEnd: row?.periodEnd || "",
+    progress: clampProgress(row?.progress),
+    weeklyProgress: row?.weeklyProgress || "",
+    nextPlan: row?.nextPlan || ""
+  };
+}
+
+function migrateTaskRows(src) {
+  if (Array.isArray(src.taskRows) && src.taskRows.length) {
+    return src.taskRows.map((row) => normalizeTaskRow(row));
+  }
+  const map = new Map();
+  (Array.isArray(src.summaryRows) ? src.summaryRows : []).forEach((row) => {
+    const owner = splitLegacyOwner(row.owner);
+    const key = row.taskId || row.deliverable || "";
+    map.set(key, {
+      taskId: row.taskId || "",
+      name: row.deliverable || "",
+      ownerName: owner.ownerName,
+      dept: owner.dept,
+      periodStart: "",
+      periodEnd: "",
+      progress: 0,
+      weeklyProgress: row.progressNote || "",
+      nextPlan: ""
+    });
+  });
+  (Array.isArray(src.sections) ? src.sections : []).forEach((section) => {
+    const owner = splitLegacyOwner(section.owner);
+    const key = section.taskId || section.title || "";
+    const prev = map.get(key) || {
+      taskId: section.taskId || "",
+      name: section.title || "",
+      ownerName: owner.ownerName,
+      dept: owner.dept,
+      periodStart: "",
+      periodEnd: "",
+      progress: 0,
+      weeklyProgress: "",
+      nextPlan: ""
+    };
+    if (!prev.name) prev.name = section.title || "";
+    if (!prev.ownerName) prev.ownerName = owner.ownerName;
+    if (!prev.dept) prev.dept = owner.dept;
+    if (!prev.weeklyProgress) prev.weeklyProgress = blockText(section, "진행");
+    if (!prev.nextPlan) prev.nextPlan = blockText(section, "차주");
+    map.set(key, prev);
+  });
+  return [...map.values()].map((row) => normalizeTaskRow(row));
+}
+
+function normalizeNarrativeSource(value) {
+  return value === "ai" || value === "compiled" || value === "edited" ? value : "";
+}
+
 function normalizeBody(body) {
   const src = body && typeof body === "object" ? body : {};
   return {
-    summaryRows: Array.isArray(src.summaryRows)
-      ? src.summaryRows.map((row) => ({
-          taskId: row.taskId || "",
-          deliverable: row.deliverable || "",
-          owner: row.owner || "",
-          status: row.status || "",
-          progressNote: row.progressNote || ""
-        }))
-      : [],
-    sections: Array.isArray(src.sections)
-      ? src.sections.map((section) => ({
-          taskId: section.taskId || "",
-          title: section.title || "",
-          owner: section.owner || "",
-          blocks: Array.isArray(section.blocks)
-            ? section.blocks.map((block) => ({
-                heading: block.heading || "",
-                text: block.text || ""
-              }))
-            : SECTION_HEADINGS.map((heading) => ({ heading, text: "" }))
-        }))
-      : [],
-    issues: Array.isArray(src.issues)
-      ? src.issues.map((row) => ({
-          item: row.item || "",
-          content: row.content || "",
-          status: row.status || ""
-        }))
-      : [],
-    checks: Array.isArray(src.checks)
-      ? src.checks.map((row) => ({
-          text: row.text || "",
-          done: Boolean(row.done),
-          taskId: row.taskId || ""
-        }))
-      : [],
+    ops: normalizeOps(src.ops) || emptyOps(),
+    weekSummary: src.weekSummary || "",
+    nextWeekPlan: src.nextWeekPlan || "",
+    narrativeSource: normalizeNarrativeSource(src.narrativeSource),
+    taskRows: migrateTaskRows(src),
     footerNote: src.footerNote || ""
   };
 }
@@ -463,17 +495,30 @@ function normalizeBody(body) {
 function normalizeReportDoc(input, company) {
   const week = Math.max(1, Number(input?.weekNumber) || 1);
   const fallback = emptyReportDoc(company, week);
+  const body = normalizeBody(input?.body);
+  const published = input?.status === "published";
+  if (!normalizeOps(input?.body?.ops) && company) {
+    body.ops = companyOpsSummary(company, week);
+  }
+  if (published) {
+    if (!String(body.weekSummary || "").trim()) {
+      body.weekSummary = composeWeekSummary(company?.name, body.taskRows);
+    }
+    if (!String(body.nextWeekPlan || "").trim()) {
+      body.nextWeekPlan = composeNextPlan(company?.name, body.taskRows);
+    }
+  }
   return {
     id: input?.id || fallback.id,
     companyId: input?.companyId || company?.id || fallback.companyId,
     weekNumber: week,
-    status: input?.status === "published" ? "published" : "draft",
+    status: published ? "published" : "draft",
     title: input?.title || fallback.title,
-    subtitle: input?.subtitle || "",
+    subtitle: "",
     periodStart: input?.periodStart || fallback.periodStart,
     periodEnd: input?.periodEnd || fallback.periodEnd,
     location: input?.location || "",
-    body: normalizeBody(input?.body),
+    body,
     source: input?.source && typeof input.source === "object" ? input.source : {},
     publishedAt: input?.publishedAt || null,
     updatedAt: input?.updatedAt || null
@@ -486,12 +531,12 @@ function newRowId(prefix) {
 
 module.exports = {
   WORK_STATUSES,
-  SECTION_HEADINGS,
   getConsultingWeek,
   consultingWeekRange,
   formatPeriodLabel,
   normalizeWorkStatus,
   companyWeeklyReportId,
+  companyOpsSummary,
   emptyBody,
   emptyReportDoc,
   assembleCompanyWeeklyReport,

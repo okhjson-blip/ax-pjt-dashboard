@@ -7,6 +7,35 @@ const {
   normalizeReportDoc,
   companyWeeklyReportId
 } = require("./weekly-report");
+const { draftNarratives } = require("./report-draft");
+
+async function applyNarrativeDraft(report, company, { onlyBlank = false } = {}) {
+  if (!report?.body) return report;
+  const draft = await draftNarratives(company?.name, report.body.taskRows || []);
+  const weekBlank = !String(report.body.weekSummary || "").trim();
+  const planBlank = !String(report.body.nextWeekPlan || "").trim();
+  if (!onlyBlank || weekBlank) report.body.weekSummary = draft.weekSummary;
+  if (!onlyBlank || planBlank) report.body.nextWeekPlan = draft.nextWeekPlan;
+  if (!onlyBlank || weekBlank || planBlank) report.body.narrativeSource = draft.source;
+  return report;
+}
+
+async function refreshOpenDraft(report, company, weekNumber, options = {}) {
+  const assembled = assembleCompanyWeeklyReport(company, weekNumber);
+  report.body.ops = assembled.body.ops;
+  report.source = assembled.source || report.source;
+  if (options.replaceTasks || !Array.isArray(report.body.taskRows) || report.body.taskRows.length === 0) {
+    report.body.taskRows = assembled.body.taskRows;
+  }
+  const weekBlank = !String(report.body.weekSummary || "").trim();
+  const planBlank = !String(report.body.nextWeekPlan || "").trim();
+  if (!weekBlank && !planBlank) return report;
+  const draft = await draftNarratives(company?.name, report.body.taskRows || []);
+  if (weekBlank) report.body.weekSummary = draft.weekSummary;
+  if (planBlank) report.body.nextWeekPlan = draft.nextWeekPlan;
+  if (report.body.narrativeSource !== "edited") report.body.narrativeSource = draft.source;
+  return report;
+}
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin2026";
 
@@ -167,16 +196,22 @@ function createRouter() {
 
       const saved = await getCompanyWeeklyReport(companyId, weekNumber);
       if (saved) {
+        const report = normalizeReportDoc(saved, company);
+        if (report.status !== "published") {
+          const legacyShape = !Array.isArray(saved.body?.taskRows);
+          await refreshOpenDraft(report, company, weekNumber, { replaceTasks: legacyShape });
+        }
         return res.json({
           ok: true,
           saved: true,
           assembled: false,
           currentWeek: getConsultingWeek(company.schedule?.startDate),
-          report: normalizeReportDoc(saved, company)
+          report
         });
       }
 
       const assembled = assembleCompanyWeeklyReport(company, weekNumber);
+      await applyNarrativeDraft(assembled, company);
       return res.json({
         ok: true,
         saved: false,
@@ -239,6 +274,30 @@ function createRouter() {
       merged.status = "draft";
       const saved = await upsertCompanyWeeklyReport(merged);
       res.json({ ok: true, saved: true, assembled: true, report: saved });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post("/companies/:companyId/weekly-reports/:week/narrative", async (req, res, next) => {
+    try {
+      const companyId = String(req.params.companyId || "");
+      const weekNumber = Number(req.params.week);
+      if (!companyId || !Number.isInteger(weekNumber) || weekNumber < 1) {
+        return res.status(400).json({ error: "협력사와 주차가 필요합니다." });
+      }
+      const data = await readData();
+      const company = data.companies.find((c) => c.id === companyId);
+      if (!company) return res.status(404).json({ error: "협력사를 찾을 수 없습니다." });
+
+      const assembled = assembleCompanyWeeklyReport(company, weekNumber);
+      const draft = await draftNarratives(company.name, assembled.body.taskRows);
+      res.json({
+        ok: true,
+        weekSummary: draft.weekSummary,
+        nextWeekPlan: draft.nextWeekPlan,
+        narrativeSource: draft.source
+      });
     } catch (err) {
       next(err);
     }

@@ -1,5 +1,3 @@
-const REPORT_SECTION_HEADINGS = ["구성", "진행", "이슈", "리뷰 방향", "차주"];
-
 function reportEscape(value) {
   return escapeHtml(String(value ?? ""));
 }
@@ -9,138 +7,129 @@ function reportPeriodLabel(doc) {
   return doc.periodStart || doc.periodEnd || "";
 }
 
-function emptyEditorSection() {
+function reportTaskPeriod(row) {
+  if (row?.periodStart && row?.periodEnd) return `${row.periodStart} ~ ${row.periodEnd}`;
+  return row?.periodStart || row?.periodEnd || "-";
+}
+
+function reportOpsView(doc) {
+  const ops = doc?.body?.ops || {};
+  const goal = ops.scheduleGoalRate == null || ops.scheduleGoalRate === "" ? 0 : Number(ops.scheduleGoalRate);
   return {
-    taskId: "",
-    title: "",
-    owner: "",
-    blocks: REPORT_SECTION_HEADINGS.map((heading) => ({ heading, text: "" }))
+    taskCount: Number(ops.taskCount || 0),
+    participantCount: Number(ops.participantCount || 0),
+    progress: Number(ops.progress || 0),
+    scheduleGoalRate: Number.isFinite(goal) ? Math.round(goal) : 0
   };
+}
+
+function reportRichText(value, emptyLabel) {
+  const text = String(value || "").trim();
+  if (!text) return `<p class="pdf-empty">${reportEscape(emptyLabel || "내용이 없습니다.")}</p>`;
+  return text
+    .split(/\n{2,}/)
+    .map((block) => {
+      const lines = block.split(/\n/);
+      const filled = lines.map((line) => line.trim()).filter(Boolean);
+      const bullets = filled.length > 1 && filled.every((line) => /^[-•●]/.test(line));
+      if (bullets) {
+        return `<ul>${filled
+          .map((line) => `<li>${reportEscape(line.replace(/^[-•●]\s*/, ""))}</li>`)
+          .join("")}</ul>`;
+      }
+      return `<p>${lines.map((line) => reportEscape(line)).join("<br>")}</p>`;
+    })
+    .join("");
+}
+
+function reportNarrativeHint(doc, kind) {
+  const source = doc?.body?.narrativeSource;
+  const target = kind === "next" ? "차주 계획" : "금주 진전";
+  if (source === "ai") {
+    return `AI가 각 과제의 ${target}을 참고해 작성한 초안입니다. 내용을 수정할 수 있습니다.`;
+  }
+  return `각 과제의 ${target}을 참고해 작성한 초안입니다. 내용을 수정할 수 있습니다.`;
 }
 
 function renderWeeklyReportPdfHtml(doc) {
   const body = doc?.body || {};
-  const summaryRows = Array.isArray(body.summaryRows) ? body.summaryRows : [];
-  const sections = Array.isArray(body.sections) ? body.sections : [];
-  const issues = Array.isArray(body.issues) ? body.issues : [];
-  const checks = Array.isArray(body.checks) ? body.checks : [];
+  const ops = reportOpsView(doc);
+  const taskRows = Array.isArray(body.taskRows) ? body.taskRows : [];
   const period = reportPeriodLabel(doc);
-  const place = [period, doc.location].filter(Boolean).join(" / ") || "-";
 
-  const summaryHtml = summaryRows.length
-    ? summaryRows
+  const taskHtml = taskRows.length
+    ? taskRows
         .map(
           (row) => `
             <tr>
-              <td>${reportEscape(row.deliverable)}</td>
-              <td>${reportEscape(row.owner)}</td>
-              <td>${reportEscape(row.status)}</td>
-              <td>${reportEscape(row.progressNote)}</td>
+              <td>${reportEscape(row.name)}</td>
+              <td>${reportEscape(row.ownerName)}</td>
+              <td>${reportEscape(row.dept)}</td>
+              <td>${reportEscape(reportTaskPeriod(row))}</td>
+              <td>${reportEscape(Number(row.progress || 0))}%</td>
+              <td>${reportEscape(row.weeklyProgress)}</td>
+              <td>${reportEscape(row.nextPlan)}</td>
             </tr>`
         )
         .join("")
-    : `<tr><td colspan="4">등록된 산출물이 없습니다.</td></tr>`;
-
-  const sectionHtml = sections.length
-    ? sections
-        .map((section, index) => {
-          const blocks = Array.isArray(section.blocks) ? section.blocks : [];
-          const blockHtml = blocks
-            .filter((block) => String(block.text || "").trim())
-            .map((block) => {
-              const lines = String(block.text || "")
-                .split(/\r?\n/)
-                .map((line) => line.trim())
-                .filter(Boolean);
-              const list =
-                lines.length > 1
-                  ? `<ul>${lines.map((line) => `<li>${reportEscape(line)}</li>`).join("")}</ul>`
-                  : `<p>${reportEscape(lines[0] || "")}</p>`;
-              return `<div class="pdf-block"><strong>${reportEscape(block.heading || "")}</strong>${list}</div>`;
-            })
-            .join("");
-          return `
-            <article class="pdf-deliverable">
-              <h3>2-${index + 1}. ${reportEscape(section.title || "산출물")}${
-                section.owner ? ` <span>(${reportEscape(section.owner)})</span>` : ""
-              }</h3>
-              ${blockHtml || "<p class='pdf-empty'>작성된 진행 내용이 없습니다.</p>"}
-            </article>`;
-        })
-        .join("")
-    : `<p class="pdf-empty">산출물별 진행 내용이 없습니다.</p>`;
-
-  const issueHtml = issues.length
-    ? issues
-        .map(
-          (row) => `
-            <tr>
-              <td>${reportEscape(row.item)}</td>
-              <td>${reportEscape(row.content)}</td>
-              <td>${reportEscape(row.status)}</td>
-            </tr>`
-        )
-        .join("")
-    : `<tr><td colspan="3">등록된 공통 이슈가 없습니다.</td></tr>`;
-
-  const checkHtml = checks.length
-    ? `<ul class="pdf-checks">${checks
-        .map((row) => `<li>${row.done ? "☑" : "☐"} ${reportEscape(row.text)}</li>`)
-        .join("")}</ul>`
-    : `<p class="pdf-empty">차주 확인사항이 없습니다.</p>`;
+    : `<tr><td colspan="7">등록된 과제가 없습니다.</td></tr>`;
 
   return `
     <div class="pdf-report">
       <header class="pdf-head">
-        <p class="pdf-kicker">${reportEscape(doc.subtitle || "주간보고")}</p>
         <h1>${reportEscape(doc.title || "주간보고")}</h1>
-        <p class="pdf-meta">기간/장소 : ${reportEscape(place)}</p>
+        ${period ? `<p class="pdf-meta">기간 : ${reportEscape(period)}</p>` : ""}
       </header>
 
       <section>
-        <h2>1. 금주 요약</h2>
+        <h2>1. 협력사 운영 요약</h2>
         <table>
           <thead>
             <tr>
-              <th>산출물</th>
-              <th>주체</th>
-              <th>상태</th>
+              <th>총 과제수</th>
+              <th>총 참여자 수</th>
+              <th>과제 진척도</th>
+              <th>일정 목표 달성율</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>${ops.taskCount}건</td>
+              <td>${ops.participantCount}명</td>
+              <td>${ops.progress}%</td>
+              <td>${ops.scheduleGoalRate}%</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>2. 금주 요약</h2>
+        ${reportRichText(body.weekSummary, "금주 요약이 없습니다.")}
+      </section>
+
+      <section>
+        <h2>3. 차주 계획</h2>
+        ${reportRichText(body.nextWeekPlan, "차주 계획이 없습니다.")}
+      </section>
+
+      <section>
+        <h2>4. 과제별 진행 현황</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>과제명</th>
+              <th>담당자명</th>
+              <th>부서명</th>
+              <th>과제 기간</th>
+              <th>진척도</th>
               <th>금주 진전</th>
+              <th>차주 계획</th>
             </tr>
           </thead>
-          <tbody>${summaryHtml}</tbody>
+          <tbody>${taskHtml}</tbody>
         </table>
       </section>
-
-      <section>
-        <h2>2. 산출물별 진행현황</h2>
-        ${sectionHtml}
-      </section>
-
-      <section>
-        <h2>3. 공통 이슈</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>항목</th>
-              <th>내용</th>
-              <th>상태</th>
-            </tr>
-          </thead>
-          <tbody>${issueHtml}</tbody>
-        </table>
-      </section>
-
-      <section>
-        <h2>4. 차주 확인사항</h2>
-        ${checkHtml}
-      </section>
-
-      ${
-        body.footerNote
-          ? `<footer class="pdf-foot">${reportEscape(body.footerNote)}</footer>`
-          : ""
-      }
     </div>
   `;
 }
@@ -150,6 +139,7 @@ function renderWeeklyReportEditorHtml(doc, options = {}) {
   const readonly = published && !options.revising;
   const lock = readonly ? "readonly class='readonly'" : "";
   const body = doc.body || {};
+  const ops = reportOpsView(doc);
   const week = Number(doc.weekNumber || 1);
   const maxWeek = Math.max(1, Number(options.currentWeek || week));
 
@@ -158,68 +148,21 @@ function renderWeeklyReportEditorHtml(doc, options = {}) {
     weekOptions += `<option value="${w}" ${w === week ? "selected" : ""}>${w}주차</option>`;
   }
 
-  const summaryRows = (body.summaryRows || [])
-    .map(
-      (row, i) => `
-        <tr data-index="${i}">
-          <td><input data-report-field="body.summaryRows.${i}.deliverable" value="${reportEscape(row.deliverable)}" ${lock} /></td>
-          <td><input data-report-field="body.summaryRows.${i}.owner" value="${reportEscape(row.owner)}" ${lock} /></td>
-          <td><input data-report-field="body.summaryRows.${i}.status" value="${reportEscape(row.status)}" ${lock} /></td>
-          <td><textarea data-report-field="body.summaryRows.${i}.progressNote" ${lock}>${reportEscape(row.progressNote)}</textarea></td>
-          <td>${readonly ? "" : `<button type="button" class="btn ghost small danger" data-action="report-remove-summary" data-index="${i}">삭제</button>`}</td>
-        </tr>`
-    )
-    .join("");
-
-  const sections = (body.sections || [])
-    .map((section, i) => {
-      const blocks = (section.blocks || [])
-        .map(
-          (block, b) => `
-            <div class="field">
-              <label>${reportEscape(block.heading || `항목 ${b + 1}`)}</label>
-              <textarea data-report-field="body.sections.${i}.blocks.${b}.text" ${lock}>${reportEscape(block.text)}</textarea>
-            </div>`
-        )
-        .join("");
-      return `
-        <article class="report-section-card">
-          <div class="grid" style="grid-template-columns: 1.4fr 1fr auto; gap:10px; align-items:end">
-            <div class="field" style="margin:0">
-              <label>산출물 ${i + 1}</label>
-              <input data-report-field="body.sections.${i}.title" value="${reportEscape(section.title)}" ${lock} />
-            </div>
-            <div class="field" style="margin:0">
-              <label>주체</label>
-              <input data-report-field="body.sections.${i}.owner" value="${reportEscape(section.owner)}" ${lock} />
-            </div>
-            ${readonly ? "" : `<button type="button" class="btn ghost small danger" data-action="report-remove-section" data-index="${i}">섹션 삭제</button>`}
-          </div>
-          ${blocks}
-        </article>`;
-    })
-    .join("");
-
-  const issues = (body.issues || [])
+  const taskRows = (body.taskRows || [])
     .map(
       (row, i) => `
         <tr>
-          <td><input data-report-field="body.issues.${i}.item" value="${reportEscape(row.item)}" ${lock} /></td>
-          <td><textarea data-report-field="body.issues.${i}.content" ${lock}>${reportEscape(row.content)}</textarea></td>
-          <td><input data-report-field="body.issues.${i}.status" value="${reportEscape(row.status)}" ${lock} /></td>
-          <td>${readonly ? "" : `<button type="button" class="btn ghost small danger" data-action="report-remove-issue" data-index="${i}">삭제</button>`}</td>
+          <td><input data-report-field="body.taskRows.${i}.name" value="${reportEscape(row.name)}" ${lock} /></td>
+          <td><input data-report-field="body.taskRows.${i}.ownerName" value="${reportEscape(row.ownerName)}" ${lock} /></td>
+          <td><input data-report-field="body.taskRows.${i}.dept" value="${reportEscape(row.dept)}" ${lock} /></td>
+          <td>
+            <input type="date" data-report-field="body.taskRows.${i}.periodStart" value="${reportEscape(row.periodStart)}" ${lock} />
+            <input type="date" data-report-field="body.taskRows.${i}.periodEnd" value="${reportEscape(row.periodEnd)}" ${lock} />
+          </td>
+          <td><input type="number" min="0" max="100" data-report-field="body.taskRows.${i}.progress" value="${reportEscape(Number(row.progress || 0))}" ${lock} /></td>
+          <td><textarea data-report-field="body.taskRows.${i}.weeklyProgress" ${lock}>${reportEscape(row.weeklyProgress)}</textarea></td>
+          <td><textarea data-report-field="body.taskRows.${i}.nextPlan" ${lock}>${reportEscape(row.nextPlan)}</textarea></td>
         </tr>`
-    )
-    .join("");
-
-  const checks = (body.checks || [])
-    .map(
-      (row, i) => `
-        <label class="report-check-row">
-          <input type="checkbox" data-report-field="body.checks.${i}.done" ${row.done ? "checked" : ""} ${readonly ? "disabled" : ""} />
-          <input data-report-field="body.checks.${i}.text" value="${reportEscape(row.text)}" ${lock} />
-          ${readonly ? "" : `<button type="button" class="btn ghost small danger" data-action="report-remove-check" data-index="${i}">삭제</button>`}
-        </label>`
     )
     .join("");
 
@@ -227,7 +170,7 @@ function renderWeeklyReportEditorHtml(doc, options = {}) {
 
   return `
     <div class="report-workspace">
-      <div class="grid" style="grid-template-columns: 140px 1fr 1fr; gap:10px">
+      <div class="grid" style="grid-template-columns: 140px 1fr; gap:10px">
         <div class="field">
           <label>주차</label>
           <select id="company-report-week" data-action="change-company-report-week">${weekOptions}</select>
@@ -236,18 +179,10 @@ function renderWeeklyReportEditorHtml(doc, options = {}) {
           <label>상태</label>
           <input value="${statusLabel}${doc.publishedAt ? ` · ${formatDateTime(doc.publishedAt)}` : ""}" readonly class="readonly" />
         </div>
-        <div class="field">
-          <label>장소</label>
-          <input data-report-field="location" value="${reportEscape(doc.location)}" placeholder="현장/공장" ${lock} />
-        </div>
       </div>
       <div class="field">
         <label>제목</label>
         <input data-report-field="title" value="${reportEscape(doc.title)}" ${lock} />
-      </div>
-      <div class="field">
-        <label>부제</label>
-        <input data-report-field="subtitle" value="${reportEscape(doc.subtitle)}" placeholder="예: 하노이 공장 현장방문 — AI 컨설팅 진행현황" ${lock} />
       </div>
       <div class="grid" style="grid-template-columns: 1fr 1fr">
         <div class="field">
@@ -262,57 +197,59 @@ function renderWeeklyReportEditorHtml(doc, options = {}) {
 
       <div class="section-title">
         <div>
-          <h3>1. 금주 요약</h3>
-          <p>산출물 · 주체 · 상태 · 금주 진전</p>
+          <h3>1. 협력사 운영 요약</h3>
+          <p>협력사 허브와 같은 기준으로 계산합니다. 총 과제수, 총 참여자 수, 과제 진척도, 일정 목표 달성율입니다.</p>
         </div>
-        ${readonly ? "" : '<button type="button" class="btn ghost small" data-action="report-add-summary">행 추가</button>'}
+      </div>
+      <div class="grid stats report-ops-grid">
+        <div class="card card-pad stat"><div class="stat-label">총 과제수</div><div class="stat-value">${ops.taskCount}건</div></div>
+        <div class="card card-pad stat"><div class="stat-label">총 참여자 수</div><div class="stat-value">${ops.participantCount}명</div></div>
+        <div class="card card-pad stat"><div class="stat-label">과제 진척도</div><div class="stat-value">${ops.progress}%</div></div>
+        <div class="card card-pad stat"><div class="stat-label">일정 목표 달성율</div><div class="stat-value">${ops.scheduleGoalRate}%</div></div>
+      </div>
+
+      <div class="section-title">
+        <div>
+          <h3>2. 금주 요약</h3>
+          <p>${reportNarrativeHint(doc, "week")}</p>
+        </div>
+        ${readonly ? "" : '<button type="button" class="btn ghost small" data-action="regenerate-report-narrative">AI 초안 다시 작성</button>'}
+      </div>
+      <div class="field report-narrative">
+        <textarea data-report-field="body.weekSummary" ${lock}>${reportEscape(body.weekSummary || "")}</textarea>
+      </div>
+
+      <div class="section-title">
+        <div>
+          <h3>3. 차주 계획</h3>
+          <p>${reportNarrativeHint(doc, "next")}</p>
+        </div>
+      </div>
+      <div class="field report-narrative">
+        <textarea data-report-field="body.nextWeekPlan" ${lock}>${reportEscape(body.nextWeekPlan || "")}</textarea>
+      </div>
+
+      <div class="section-title">
+        <div>
+          <h3>4. 과제별 진행 현황</h3>
+          <p>과제명, 담당자명, 부서명, 과제 기간, 진척도, 금주 진전, 차주 계획</p>
+        </div>
       </div>
       <div class="report-table-wrap">
-        <table class="report-edit-table">
+        <table class="report-edit-table report-task-table">
           <thead>
-            <tr><th>산출물</th><th>주체</th><th>상태</th><th>금주 진전</th><th></th></tr>
+            <tr>
+              <th>과제명</th>
+              <th>담당자명</th>
+              <th>부서명</th>
+              <th>과제 기간</th>
+              <th>진척도</th>
+              <th>금주 진전</th>
+              <th>차주 계획</th>
+            </tr>
           </thead>
-          <tbody>${summaryRows || `<tr><td colspan="5" class="helper">행이 없습니다.</td></tr>`}</tbody>
+          <tbody>${taskRows || `<tr><td colspan="7" class="helper">등록된 과제가 없습니다.</td></tr>`}</tbody>
         </table>
-      </div>
-
-      <div class="section-title">
-        <div>
-          <h3>2. 산출물별 진행현황</h3>
-          <p>구성 · 진행 · 이슈 · 리뷰 방향 · 차주</p>
-        </div>
-        ${readonly ? "" : '<button type="button" class="btn ghost small" data-action="report-add-section">섹션 추가</button>'}
-      </div>
-      ${sections || '<p class="helper">산출물 섹션이 없습니다.</p>'}
-
-      <div class="section-title">
-        <div>
-          <h3>3. 공통 이슈</h3>
-          <p>과제 횡단 이슈. 참여자 과제 이슈와 별도입니다.</p>
-        </div>
-        ${readonly ? "" : '<button type="button" class="btn ghost small" data-action="report-add-issue">이슈 추가</button>'}
-      </div>
-      <div class="report-table-wrap">
-        <table class="report-edit-table">
-          <thead>
-            <tr><th>항목</th><th>내용</th><th>상태</th><th></th></tr>
-          </thead>
-          <tbody>${issues || `<tr><td colspan="4" class="helper">이슈가 없습니다.</td></tr>`}</tbody>
-        </table>
-      </div>
-
-      <div class="section-title">
-        <div>
-          <h3>4. 차주 확인사항</h3>
-          <p>한 줄에 한 항목</p>
-        </div>
-        ${readonly ? "" : '<button type="button" class="btn ghost small" data-action="report-add-check">항목 추가</button>'}
-      </div>
-      <div class="report-check-list">${checks || '<p class="helper">확인사항이 없습니다.</p>'}</div>
-
-      <div class="field">
-        <label>각주</label>
-        <textarea data-report-field="body.footerNote" ${lock}>${reportEscape(body.footerNote || "")}</textarea>
       </div>
 
       <div class="section-title">

@@ -981,6 +981,26 @@ input[type="range"].range-gray { accent-color: var(--muted); }
   min-height: 64px;
 }
 
+.report-ops-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.report-ops-grid .stat-value {
+  font-size: 22px;
+}
+
+.report-narrative textarea {
+  min-height: 140px;
+}
+
+.report-task-table {
+  min-width: 980px;
+}
+
+.report-task-table input[type="number"] {
+  width: 72px;
+}
+
 .report-section-card {
   border: 1px solid var(--line);
   border-radius: var(--radius);

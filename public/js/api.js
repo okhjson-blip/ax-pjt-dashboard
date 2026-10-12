@@ -80,6 +80,13 @@ const API = {
     });
   },
 
+  draftCompanyWeeklyNarrative(companyId, week) {
+    return this.request(`/companies/${encodeURIComponent(companyId)}/weekly-reports/${week}/narrative`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  },
+
   publishCompanyWeeklyReport(companyId, week, payload) {
     return this.request(`/companies/${encodeURIComponent(companyId)}/weekly-reports/${week}/publish`, {
       method: "POST",
