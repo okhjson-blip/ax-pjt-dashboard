@@ -244,6 +244,11 @@
     return isAdmin() || isMine(participant);
   }
 
+  function canManageNotices(company) {
+    if (!company) return false;
+    return isAdmin() || (isPmo() && company.id === state.auth?.companyId);
+  }
+
   function lockToOwnParticipant() {
     if (isPmo() && state.auth?.companyId) {
       state.selectedCompanyId = state.auth.companyId;
@@ -458,7 +463,7 @@
           }
           <div class="side-footer">
             <strong>${escapeHtml(state.auth.name)}</strong><br />
-            ${isAdmin() ? "전체 협력사/참여자 관리 권한" : isPmo() ? "소속 협력사 허브·개인 대시보드 조회 권한" : "본인 데이터 편집 권한"}<br />
+            ${isAdmin() ? "전체 협력사/참여자 관리 권한" : isPmo() ? "소속 협력사 조회·공지 관리 권한" : "본인 데이터 편집 권한"}<br />
             <button class="btn ghost small" style="margin-top:10px; width:100%" data-action="logout">로그아웃</button>
           </div>
         </aside>
@@ -495,7 +500,7 @@
     if (state.view === "company") {
       return `
         ${isAdmin() ? '<button class="btn primary" data-action="open-report">레포트 발행</button>' : ""}
-        ${isAdmin() ? '<button class="btn ghost" data-action="open-add-notice">공지 등록</button>' : ""}
+        ${canManageNotices(currentCompany()) ? '<button class="btn ghost" data-action="open-add-notice">공지 등록</button>' : ""}
         <button class="btn ghost" data-action="open-add-participant">참여자 등록</button>
       `;
     }
@@ -737,7 +742,7 @@
                 .map((n) => {
                   const isNew = isNoticeUnread(company, n.id);
                   return `
-              <button type="button" class="notice-item notice-item-btn ${isNew ? "is-new" : ""}" data-action="open-notice-detail" data-notice="${n.id}">
+              <button type="button" class="notice-item notice-item-btn ${isNew ? "is-new" : ""}" data-action="open-notice-detail" data-company="${company.id}" data-notice="${n.id}">
                 <span class="notice-item-main">
                   <strong>${escapeHtml(n.title)}</strong>
                   <span class="person-meta">${formatDateTime(n.createdAt)}</span>
@@ -1905,8 +1910,13 @@
     );
   }
 
+  function noticeTargetCompany() {
+    const companyId = state.form.companyId || state.selectedCompanyId;
+    return ensureCompanyFields(state.companies.find((c) => c.id === companyId) || currentCompany());
+  }
+
   function renderNoticeDetailModal() {
-    const company = currentCompany();
+    const company = noticeTargetCompany();
     const notice = (company?.notices || []).find((n) => n.id === state.form.noticeId);
     if (!notice) {
       return modalShell(
@@ -1915,29 +1925,34 @@
         `<button class="btn primary" data-action="close-modal">닫기</button>`
       );
     }
+    const manage = canManageNotices(company)
+      ? `<button class="btn ghost" data-action="open-edit-notice" data-company="${company.id}" data-notice="${notice.id}">수정</button>
+      <button class="btn ghost danger" data-action="delete-notice" data-company="${company.id}" data-notice="${notice.id}">삭제</button>`
+      : "";
     return modalShell(
       escapeHtml(notice.title),
       `
       <p class="person-meta" style="margin-top:0">${formatDateTime(notice.createdAt)}</p>
       <p class="notice-detail-body">${escapeHtml(notice.content)}</p>
     `,
-      `<button class="btn primary" data-action="ack-notice" data-notice="${notice.id}">확인</button>`
+      `${manage}<button class="btn primary" data-action="ack-notice" data-notice="${notice.id}">확인</button>`
     );
   }
 
   function renderAddNoticeModal() {
-    const companyId = state.form.companyId || state.selectedCompanyId;
-    const company = ensureCompanyFields(state.companies.find((c) => c.id === companyId) || currentCompany());
+    const company = noticeTargetCompany();
+    const existing = (company?.notices || []).find((n) => n.id === state.form.noticeId) || null;
+    const editing = Boolean(existing);
     return modalShell(
-      "공지사항 등록",
+      editing ? "공지사항 수정" : "공지사항 등록",
       `
       <p class="helper" style="margin-top:0">${escapeHtml(company?.name || "선택 협력사")} 참여자에게만 표시됩니다.</p>
-      <div class="field"><label>제목</label><input id="notice-title" placeholder="공지 제목" /></div>
-      <div class="field"><label>내용</label><textarea id="notice-content" placeholder="공지 내용을 입력하세요"></textarea></div>
+      <div class="field"><label>제목</label><input id="notice-title" placeholder="공지 제목" value="${escapeHtml(existing?.title || "")}" /></div>
+      <div class="field"><label>내용</label><textarea id="notice-content" placeholder="공지 내용을 입력하세요">${escapeHtml(existing?.content || "")}</textarea></div>
     `,
       `
       <button class="btn ghost" data-action="close-modal">취소</button>
-      <button class="btn primary" data-action="save-notice">등록</button>
+      <button class="btn primary" data-action="save-notice">${editing ? "저장" : "등록"}</button>
     `
     );
   }
@@ -2304,7 +2319,31 @@
       openModal("addTask", { companyId: el.dataset.company, participantId: el.dataset.participant });
     }
     if (action === "open-add-notice") {
-      openModal("addNotice", { companyId: el.dataset.company || state.selectedCompanyId });
+      const companyId = el.dataset.company || state.selectedCompanyId;
+      const company = ensureCompanyFields(state.companies.find((c) => c.id === companyId) || currentCompany());
+      if (!canManageNotices(company)) return toast("소속 협력사 공지만 등록할 수 있습니다.");
+      openModal("addNotice", { companyId: company.id, noticeId: null });
+    }
+    if (action === "open-edit-notice") {
+      const companyId = el.dataset.company || state.form.companyId || state.selectedCompanyId;
+      const company = ensureCompanyFields(state.companies.find((c) => c.id === companyId) || currentCompany());
+      const notice = (company?.notices || []).find((n) => n.id === el.dataset.notice);
+      if (!company || !notice) return toast("공지를 찾을 수 없습니다.");
+      if (!canManageNotices(company)) return toast("소속 협력사 공지만 수정할 수 있습니다.");
+      openModal("addNotice", { companyId: company.id, noticeId: notice.id });
+    }
+    if (action === "delete-notice") {
+      const companyId = el.dataset.company || state.form.companyId || state.selectedCompanyId;
+      const company = ensureCompanyFields(state.companies.find((c) => c.id === companyId) || currentCompany());
+      const notice = (company?.notices || []).find((n) => n.id === el.dataset.notice);
+      if (!company || !notice) return toast("공지를 찾을 수 없습니다.");
+      if (!canManageNotices(company)) return toast("소속 협력사 공지만 삭제할 수 있습니다.");
+      const okConfirm = window.confirm(`"${notice.title}" 공지를 삭제할까요?\nDB에도 반영됩니다.`);
+      if (!okConfirm) return;
+      company.notices = (company.notices || []).filter((n) => n.id !== notice.id);
+      if (state.modal) closeModal();
+      await persist("공지사항을 삭제했습니다.");
+      render();
     }
 
     if (action === "delete-company") {
@@ -2366,7 +2405,10 @@
       render();
     }
     if (action === "open-notice-detail") {
-      openModal("noticeDetail", { noticeId: el.dataset.notice });
+      openModal("noticeDetail", {
+        noticeId: el.dataset.notice,
+        companyId: el.dataset.company || state.selectedCompanyId
+      });
     }
     if (action === "ack-notice") {
       const company = currentCompany();
@@ -2447,18 +2489,26 @@
     }
 
     if (action === "save-notice") {
-      const companyId = state.form.companyId || state.selectedCompanyId;
-      const company = ensureCompanyFields(state.companies.find((c) => c.id === companyId));
+      const company = noticeTargetCompany();
+      if (!company || !canManageNotices(company)) return toast("소속 협력사 공지만 등록·수정할 수 있습니다.");
       const title = document.getElementById("notice-title")?.value.trim() || "";
       const content = document.getElementById("notice-content")?.value.trim() || "";
       if (!title || !content) return toast("제목과 내용을 입력해 주세요.");
-      company.notices.push({
-        id: uid("n"),
-        title,
-        content,
-        createdAt: new Date().toISOString()
-      });
-      await persist("공지사항을 등록했습니다.");
+      const existing = (company.notices || []).find((n) => n.id === state.form.noticeId);
+      if (state.form.noticeId && !existing) return toast("공지를 찾을 수 없습니다.");
+      if (existing) {
+        existing.title = title;
+        existing.content = content;
+        existing.updatedAt = new Date().toISOString();
+      } else {
+        company.notices.push({
+          id: uid("n"),
+          title,
+          content,
+          createdAt: new Date().toISOString()
+        });
+      }
+      await persist(existing ? "공지사항을 수정했습니다." : "공지사항을 등록했습니다.");
       closeModal();
     }
 
