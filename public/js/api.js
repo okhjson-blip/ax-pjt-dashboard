@@ -24,7 +24,7 @@ const API = {
   },
 
   getDashboard() {
-    return this.request("/dashboard");
+    return this.request("/dashboard", { cache: "no-store" });
   },
 
   saveDashboardChanges(changes) {

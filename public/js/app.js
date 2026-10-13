@@ -515,6 +515,7 @@
         ${isAdmin() ? '<button class="btn primary" data-action="open-report">레포트 발행</button>' : ""}
         ${canManageNotices(currentCompany()) ? '<button class="btn ghost" data-action="open-add-notice">공지 등록</button>' : ""}
         <button class="btn ghost" data-action="open-add-participant">참여자 등록</button>
+        <button class="btn ghost" data-action="refresh-dashboard" title="DB에서 최신 데이터를 다시 불러옵니다">업데이트</button>
       `;
     }
     if (state.view === "personal") {
@@ -2261,6 +2262,23 @@
         render();
       } catch (err) {
         document.getElementById("login-error").textContent = err.message;
+      }
+    }
+
+    if (action === "refresh-dashboard") {
+      if (el.disabled) return;
+      el.disabled = true;
+      el.textContent = "업데이트 중...";
+      try {
+        await reloadDashboardData();
+        render();
+        maybeShowParticipantUpdatePopup();
+        const time = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        toast(`최신 데이터를 불러왔습니다. (${time})`);
+      } catch (err) {
+        el.disabled = false;
+        el.textContent = "업데이트";
+        toast(err.message || "최신 데이터를 불러오지 못했습니다.");
       }
     }
 
