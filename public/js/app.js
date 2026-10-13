@@ -20,8 +20,11 @@
     form: {},
     companies: [],
     meta: {},
+    baseline: null,
     lastLocalSaveAt: null
   };
+
+  let saveSeq = 0;
 
   function taskReportPatch(task, extra = {}) {
     const t = ensureTaskFields(task) || {};
@@ -274,18 +277,28 @@
   }
 
   async function persist(message) {
+    const changes = buildDashboardChanges(state.baseline, state.companies);
+    if (!hasDashboardChanges(changes)) {
+      if (message) toast(message);
+      return true;
+    }
+    const seq = ++saveSeq;
     try {
       state.saving = true;
-      const saved = await API.saveDashboard({
-        companies: state.companies,
-        meta: state.meta
-      });
-      state.meta = saved.meta || state.meta;
-      state.lastLocalSaveAt = saved.meta?.lastSavedAt || new Date().toISOString();
+      const saved = await API.saveDashboardChanges(changes);
+      if (seq === saveSeq) applyDashboardData(saved);
       if (message) toast(message);
       return true;
     } catch (err) {
       toast(err.message || "저장에 실패했습니다.");
+      if (err.status === 409) {
+        try {
+          await reloadDashboardData();
+          render();
+        } catch {
+          /* 새로고침 실패 시 기존 화면 유지 */
+        }
+      }
       return false;
     } finally {
       state.saving = false;
@@ -507,8 +520,7 @@
     if (state.view === "personal") {
       const hint =
         '<p class="timeout-hint">' +
-        '<span class="timeout-hint-line">타임아웃 시간 제한 30초로 잠시 입력을 쉴 때는</span>' +
-        '<span class="timeout-hint-line">반드시 저장하여 주시기 바랍니다</span>' +
+        '<span class="timeout-hint-line">입력 후에는 저장해 주세요</span>' +
         "</p>";
       if (isAdmin() && isViewingCurrentWeek()) {
         return `${hint}<button class="btn primary" data-action="save-feedback">피드백 저장</button>`;
@@ -1800,8 +1812,8 @@
       </div>
     `,
       `
-      <button class="btn ghost" data-action="close-modal">취소</button>
-      <button class="btn primary" data-action="add-task">추가</button>
+      <button class="btn ghost btn-compact" data-action="close-modal">취소</button>
+      <button class="btn primary btn-compact" data-action="add-task">저장</button>
     `,
       true
     );
@@ -2092,19 +2104,79 @@
     }
     if (!state.auth) renderLogin();
     else renderShell();
+    saveSession();
     if (document.getElementById("process-asis-list") || document.getElementById("process-tobe-list")) {
       refreshProcessPreview();
     }
   }
 
-  async function reloadDashboardData() {
-    const data = await API.getDashboard();
+  // 브라우저가 유휴 탭을 정리·재로드해도 같은 탭에서는 로그인 상태가 유지되도록 sessionStorage에 보관한다.
+  const SESSION_STORAGE_KEY = "ax-dashboard-session";
+
+  function saveSession() {
+    try {
+      if (!state.auth) {
+        sessionStorage.removeItem(SESSION_STORAGE_KEY);
+        return;
+      }
+      sessionStorage.setItem(
+        SESSION_STORAGE_KEY,
+        JSON.stringify({
+          auth: state.auth,
+          view: state.view,
+          selectedCompanyId: state.selectedCompanyId,
+          selectedParticipantId: state.selectedParticipantId,
+          selectedTaskId: state.selectedTaskId
+        })
+      );
+    } catch {
+      /* 저장소 사용 불가(사생활 보호 모드 등) 시 메모리 상태만 사용 */
+    }
+  }
+
+  function restoreSession() {
+    let saved = null;
+    try {
+      saved = JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY) || "null");
+    } catch {
+      saved = null;
+    }
+    const auth = saved?.auth;
+    if (!auth?.role) return false;
+    const company = state.companies.find((c) => c.id === auth.companyId);
+    if (auth.role === "participant") {
+      if (!company?.participants.some((p) => p.id === auth.participantId)) return false;
+    } else if (auth.role === "pmo") {
+      if (!company) return false;
+    } else if (auth.role !== "admin") {
+      return false;
+    }
+    state.auth = auth;
+    const view = saved.view || (auth.role === "admin" ? "admin" : "company");
+    state.view = view === "admin" && auth.role !== "admin" ? "company" : view;
+    if (saved.selectedCompanyId && state.companies.some((c) => c.id === saved.selectedCompanyId)) {
+      state.selectedCompanyId = saved.selectedCompanyId;
+    }
+    if (saved.selectedParticipantId) state.selectedParticipantId = saved.selectedParticipantId;
+    if (saved.selectedTaskId) state.selectedTaskId = saved.selectedTaskId;
+    lockToOwnParticipant();
+    return true;
+  }
+
+  function applyDashboardData(data) {
     state.companies = (data.companies || []).map((c) => ensureCompanyFields(c));
     state.companies.forEach((c) =>
       c.participants.forEach((p) => p.tasks.forEach((t) => ensureTaskFields(t)))
     );
     state.meta = data.meta || {};
     state.lastLocalSaveAt = state.meta.lastSavedAt || null;
+    state.baseline = snapshotDashboard(state.companies);
+  }
+
+  async function reloadDashboardData() {
+    saveSeq += 1;
+    const data = await API.getDashboard();
+    applyDashboardData(data);
     return data;
   }
 
@@ -2114,8 +2186,10 @@
       state.selectedCompanyId = state.companies[0]?.id || null;
       state.selectedParticipantId = state.companies[0]?.participants[0]?.id || null;
       state.selectedTaskId = state.companies[0]?.participants[0]?.tasks[0]?.id || null;
+      restoreSession();
       state.loading = false;
       render();
+      maybeShowParticipantUpdatePopup();
     } catch (err) {
       state.loading = false;
       app.innerHTML = `<div class="empty" style="margin:48px auto; max-width:480px">데이터를 불러오지 못했습니다.<br />${escapeHtml(err.message)}<br /><br /><button class="btn primary" onclick="location.reload()">다시 시도</button></div>`;
@@ -2986,8 +3060,13 @@
       }
 
       clearTimeout(progressSaveTimer);
+      const taskId = task.id;
+      const progress = task.progress;
       progressSaveTimer = setTimeout(async () => {
-        upsertTaskWeekSnapshot(task, currentWeekNumber(company), taskReportPatch(task));
+        const latest = currentParticipant()?.tasks.find((t) => t.id === taskId);
+        if (!latest) return;
+        latest.progress = progress;
+        upsertTaskWeekSnapshot(latest, currentWeekNumber(), taskReportPatch(latest));
         await persist("진척도를 저장했습니다.");
       }, 400);
     }

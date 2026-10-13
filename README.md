@@ -121,7 +121,8 @@ CLI link가 안 되면 Dashboard **SQL Editor**에서 `scripts/remote-schema.sql
 |--------|------|------|
 | GET | `/api/health` | 헬스체크 (`db`: `supabase` \| `json-file`) |
 | GET | `/api/dashboard` | 대시보드 데이터 조회 |
-| PUT | `/api/dashboard` | 대시보드 데이터 저장 (전체 문서 덮어쓰기) |
+| PATCH | `/api/dashboard` | 변경분 저장 (`changes`: 엔티티별 생성·수정 필드·명시적 삭제). 저장 후 최신 데이터 반환 |
+| PUT | `/api/dashboard` | 사용 중지 (전체 덮어쓰기는 동시 사용 시 데이터 유실 → 409 반환) |
 | POST | `/api/auth/admin` | 관리자 로그인 |
 | POST | `/api/auth/participant` | 참여자 로그인 |
 | POST | `/api/auth/register` | 참여자 신규 등록 |

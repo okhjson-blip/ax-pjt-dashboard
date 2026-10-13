@@ -9,7 +9,8 @@
       "entrypoint": "app.js",
       "functions": {
         "app.js": {
-          "includeFiles": "backend/**"
+          "includeFiles": "backend/**",
+          "maxDuration": 300
         }
       }
     }

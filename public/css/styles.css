@@ -228,6 +228,11 @@ textarea {
   padding: 7px 10px;
   font-size: 13px;
 }
+.btn.btn-compact {
+  min-height: 32px;
+  padding: 8px 11px;
+  font-size: 12.8px;
+}
 .btn.icon {
   width: 36px;
   padding: 0;

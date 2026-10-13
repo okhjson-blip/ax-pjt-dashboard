@@ -72,8 +72,9 @@ function createApp() {
     if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
       return res.status(400).json({ error: "요청 JSON 형식이 올바르지 않습니다." });
     }
-    console.error(err);
-    res.status(500).json({ error: err.message || "서버 오류가 발생했습니다." });
+    const status = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 500;
+    if (status >= 500) console.error(err);
+    res.status(status).json({ error: err.message || "서버 오류가 발생했습니다." });
   });
 
   return app;

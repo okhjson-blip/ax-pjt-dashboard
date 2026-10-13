@@ -92,7 +92,7 @@ npm run db:status     # URL/키 확인 후 .env에 반영
 npm start
 # GET /api/health → { "db": "supabase" }
 # GET /api/dashboard → companies / participants / tasks
-# PUT /api/dashboard → Supabase upsert 후 즉시 GET으로 반영 확인
+# PATCH /api/dashboard → 변경된 행·필드만 반영 후 최신 데이터 반환
 ```
 
 ## 마이그레이션 추가

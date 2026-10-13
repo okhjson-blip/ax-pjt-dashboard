@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { createSeedData } = require("./seed-data");
 const { uid } = require("./store-utils");
+const { normalizeChanges, countChanges, applyChangesToNested } = require("./store-changes");
 
 const DATA_DIR = path.join(__dirname, "..", "data");
 const DATA_FILE = path.join(DATA_DIR, "dashboard.json");
@@ -60,6 +61,20 @@ async function writeData(data) {
   return writeDataSync(data);
 }
 
+async function applyChanges(rawChanges) {
+  const changes = normalizeChanges(rawChanges);
+  if (!countChanges(changes)) return;
+  const data = await readData();
+  applyChangesToNested(data, changes);
+  writeDataSync(data);
+}
+
+async function updateMeta(patch) {
+  const data = await readData();
+  data.meta = { ...(data.meta || {}), ...patch };
+  return writeDataSync(data).meta;
+}
+
 async function resetData() {
   const seed = createSeedData();
   seed.companyWeeklyReports = [];
@@ -93,6 +108,8 @@ module.exports = {
   DATA_FILE,
   readData,
   writeData,
+  applyChanges,
+  updateMeta,
   resetData,
   getCompanyWeeklyReport,
   upsertCompanyWeeklyReport,

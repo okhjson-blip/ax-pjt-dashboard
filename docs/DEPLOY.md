@@ -138,7 +138,7 @@ SUPABASE_PUBLISHABLE_KEY=...     # 또는 SUPABASE_ANON_KEY (선택)
 
 - 정적 UI: `public/**` → CDN (`/css`, `/js`)
 - API: `api/index.js` → `/api/*` (rewrite 불필요)
-- Function 제한: Hobby 기본값(Standard CPU, maxDuration 300초). `memory`/`maxDuration`은 지정하지 않습니다.
+- Function 제한: Standard CPU, `vercel.json`의 `functions."app.js".maxDuration`을 300초로 명시합니다. `memory`는 지정하지 않습니다.
 
 1. [Vercel](https://vercel.com)에서 Git 저장소 Import, 또는 CLI:
    ```bash
@@ -185,7 +185,7 @@ docker run --rm -p 3080:3080 --env-file .env -e HOST=0.0.0.0 ax-pjt-dashboard
 2. 관리자 로그인 (`ADMIN_PASSWORD`)
 3. 협력사/참여자/과제 표시 (시드·저장 데이터)
 4. 데이터 수정 후 새로고침·재조회로 유지 확인
-5. (선택) `PUT /api/dashboard` 후 Supabase Table Editor에서 행 확인
+5. (선택) 화면에서 저장(`PATCH /api/dashboard`) 후 Supabase Table Editor에서 행 확인
 
 ---
 

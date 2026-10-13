@@ -27,10 +27,10 @@ const API = {
     return this.request("/dashboard");
   },
 
-  saveDashboard(payload) {
+  saveDashboardChanges(changes) {
     return this.request("/dashboard", {
-      method: "PUT",
-      body: JSON.stringify(payload)
+      method: "PATCH",
+      body: JSON.stringify({ changes })
     });
   },
 

@@ -1,5 +1,5 @@
 function uid(prefix) {
-  return prefix + Math.random().toString(36).slice(2, 8);
+  return prefix + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
 }
 
 function today() {
@@ -1211,4 +1211,138 @@ function parseCsvTasks(text) {
 function taskReportText(task, key, emptyText) {
   if (!task) return emptyText;
   return task[key]?.trim() || emptyText;
+}
+
+const DASHBOARD_ENTITY_FIELDS = {
+  companies: ["name", "schedule", "pmo", "notices", "participantUpdateRequest"],
+  participants: [
+    "companyId",
+    "name",
+    "email",
+    "dept",
+    "status",
+    "summary",
+    "nextWeekPlan",
+    "instructorMemo",
+    "registeredAt"
+  ],
+  tasks: [
+    "participantId",
+    "name",
+    "progress",
+    "weeklySummary",
+    "weeklyDetail",
+    "weeklyIssues",
+    "nextWeekPlan",
+    "instructorFeedback",
+    "reportCompleted",
+    "workStatus",
+    "startDate",
+    "endDate",
+    "goal",
+    "asIsProcess",
+    "toBeProcess",
+    "difficulty",
+    "hierarchy",
+    "statistics",
+    "members",
+    "projectName",
+    "bdwSummary",
+    "bdwDetail",
+    "aiFit",
+    "asIsProcessDetail"
+  ],
+  weeklyReports: [
+    "id",
+    "taskId",
+    "weekNumber",
+    "progress",
+    "weeklySummary",
+    "weeklyDetail",
+    "weeklyIssues",
+    "nextWeekPlan",
+    "instructorFeedback",
+    "workStatus",
+    "reportCompleted",
+    "savedAt"
+  ]
+};
+
+function pickDashboardFields(source, fields, extra = {}) {
+  const row = {};
+  const merged = { ...source, ...extra };
+  fields.forEach((key) => {
+    row[key] = merged[key] === undefined ? null : merged[key];
+  });
+  return JSON.parse(JSON.stringify(row));
+}
+
+// 엔티티별 평면 스냅샷. 저장 시 이 기준점과 비교해 바뀐 행·필드만 서버로 보낸다.
+function snapshotDashboard(companies) {
+  const snap = { companies: {}, participants: {}, tasks: {}, weeklyReports: {} };
+  (companies || []).forEach((company) => {
+    snap.companies[company.id] = pickDashboardFields(company, DASHBOARD_ENTITY_FIELDS.companies);
+    (company.participants || []).forEach((participant) => {
+      snap.participants[participant.id] = pickDashboardFields(participant, DASHBOARD_ENTITY_FIELDS.participants, {
+        companyId: company.id
+      });
+      (participant.tasks || []).forEach((task) => {
+        snap.tasks[task.id] = pickDashboardFields(task, DASHBOARD_ENTITY_FIELDS.tasks, {
+          participantId: participant.id
+        });
+        (task.weeklyReports || []).forEach((report) => {
+          const weekNumber = Number(report.weekNumber || 0);
+          if (!weekNumber || weekNumber < 1) return;
+          snap.weeklyReports[`${task.id}:${weekNumber}`] = pickDashboardFields(
+            report,
+            DASHBOARD_ENTITY_FIELDS.weeklyReports,
+            { taskId: task.id, weekNumber }
+          );
+        });
+      });
+    });
+  });
+  return snap;
+}
+
+function buildDashboardChanges(baseline, companies) {
+  const base = baseline || { companies: {}, participants: {}, tasks: {}, weeklyReports: {} };
+  const current = snapshotDashboard(companies);
+  const changes = {};
+  Object.keys(DASHBOARD_ENTITY_FIELDS).forEach((type) => {
+    const before = base[type] || {};
+    const after = current[type];
+    const created = [];
+    const updated = [];
+    const deleted = [];
+    Object.keys(after).forEach((key) => {
+      const row = after[key];
+      const prev = before[key];
+      if (!prev) {
+        created.push({ ...row, id: type === "weeklyReports" ? row.id : key });
+        return;
+      }
+      const patch = {};
+      DASHBOARD_ENTITY_FIELDS[type].forEach((field) => {
+        if (JSON.stringify(row[field]) !== JSON.stringify(prev[field])) patch[field] = row[field];
+      });
+      if (!Object.keys(patch).length) return;
+      if (type === "weeklyReports") updated.push({ ...patch, taskId: row.taskId, weekNumber: row.weekNumber });
+      else updated.push({ ...patch, id: key });
+    });
+    Object.keys(before).forEach((key) => {
+      if (after[key]) return;
+      if (type === "weeklyReports") {
+        deleted.push({ taskId: before[key].taskId, weekNumber: before[key].weekNumber });
+      } else {
+        deleted.push(key);
+      }
+    });
+    if (created.length || updated.length || deleted.length) changes[type] = { created, updated, deleted };
+  });
+  return changes;
+}
+
+function hasDashboardChanges(changes) {
+  return Object.keys(changes || {}).length > 0;
 }

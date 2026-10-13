@@ -1,5 +1,13 @@
 const express = require("express");
-const { readData, writeData, uid, isSupabaseConfigured, getCompanyWeeklyReport, upsertCompanyWeeklyReport } = require("./store");
+const {
+  readData,
+  applyChanges,
+  updateMeta,
+  uid,
+  isSupabaseConfigured,
+  getCompanyWeeklyReport,
+  upsertCompanyWeeklyReport
+} = require("./store");
 const {
   getConsultingWeek,
   assembleCompanyWeeklyReport,
@@ -40,6 +48,10 @@ async function refreshOpenDraft(report, company, weekNumber, options = {}) {
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin2026";
 
+function nameKey(value) {
+  return String(value || "").replace(/\s+/g, "").toLowerCase();
+}
+
 function createRouter() {
   const router = express.Router();
 
@@ -69,21 +81,23 @@ function createRouter() {
     }
   });
 
-  router.put("/dashboard", async (req, res, next) => {
+  // 전체 스냅샷 덮어쓰기는 동시 사용 시 다른 사용자의 데이터를 지우므로 받지 않는다(구버전 화면 대비).
+  router.put("/dashboard", (_req, res) => {
+    res.status(409).json({
+      error: "화면이 최신 버전이 아닙니다. 새로고침(F5) 후 다시 저장해 주세요.",
+      reload: true
+    });
+  });
+
+  router.patch("/dashboard", async (req, res, next) => {
     try {
-      const body = req.body || {};
-      if (!Array.isArray(body.companies)) {
-        return res.status(400).json({ error: "companies 배열이 필요합니다." });
+      const changes = req.body?.changes;
+      if (!changes || typeof changes !== "object") {
+        return res.status(400).json({ error: "changes 객체가 필요합니다." });
       }
-      const current = await readData();
-      const nextData = {
-        companies: body.companies,
-        meta: {
-          ...(current.meta || {}),
-          ...(body.meta || {})
-        }
-      };
-      res.json(await writeData(nextData));
+      await applyChanges(changes);
+      await updateMeta({ lastSavedAt: new Date().toISOString() });
+      res.json(await readData());
     } catch (err) {
       next(err);
     }
@@ -113,9 +127,8 @@ function createRouter() {
         return res.status(404).json({ error: "협력사를 찾을 수 없습니다." });
       }
 
-      const participant = company.participants.find(
-        (p) => p.name === name && String(p.email).toLowerCase() === email
-      );
+      const byEmail = company.participants.find((p) => String(p.email || "").trim().toLowerCase() === email);
+      const participant = byEmail && nameKey(byEmail.name) === nameKey(name) ? byEmail : null;
 
       if (matchesCompanyPmo(company, name, email)) {
         return res.json({
@@ -124,6 +137,12 @@ function createRouter() {
           email,
           companyId: company.id,
           participantId: participant?.id || null
+        });
+      }
+
+      if (byEmail && !participant) {
+        return res.status(401).json({
+          error: "이미 등록된 이메일입니다. 등록할 때 입력한 이름과 같은지 확인해 주세요."
         });
       }
 
@@ -168,13 +187,14 @@ function createRouter() {
         });
       }
 
-      const exists = company.participants.find((p) => String(p.email).toLowerCase() === email);
+      const exists = company.participants.find((p) => String(p.email || "").trim().toLowerCase() === email);
       if (exists) {
         return res.status(409).json({ error: "이미 등록된 이메일입니다. 기존 정보로 로그인해 주세요." });
       }
 
       const participant = {
         id: uid("p"),
+        companyId: company.id,
         name,
         email,
         dept,
@@ -182,12 +202,10 @@ function createRouter() {
         summary: "",
         nextWeekPlan: "",
         instructorMemo: "",
-        tasks: [],
         registeredAt: new Date().toISOString()
       };
 
-      company.participants.push(participant);
-      await writeData(data);
+      await applyChanges({ participants: { created: [participant] } });
 
       res.status(201).json({
         role: "participant",
@@ -347,16 +365,13 @@ function createRouter() {
       incoming.status = "published";
       incoming.publishedAt = incoming.publishedAt || new Date().toISOString();
       const saved = await upsertCompanyWeeklyReport(incoming);
-
-      data.meta = data.meta || {};
-      data.meta.lastReportRequestAt = saved.publishedAt;
-      await writeData(data);
+      await updateMeta({ lastReportRequestAt: saved.publishedAt });
 
       res.json({
         ok: true,
         saved: true,
         report: saved,
-        requestedAt: data.meta.lastReportRequestAt
+        requestedAt: saved.publishedAt
       });
     } catch (err) {
       next(err);
@@ -374,9 +389,8 @@ function createRouter() {
         return res.status(404).json({ error: "협력사를 찾을 수 없습니다." });
       }
 
-      data.meta = data.meta || {};
-      data.meta.lastReportRequestAt = new Date().toISOString();
-      await writeData(data);
+      const requestedAt = new Date().toISOString();
+      await updateMeta({ lastReportRequestAt: requestedAt });
 
       res.json({
         ok: true,
@@ -384,7 +398,7 @@ function createRouter() {
         companyId,
         companyName: company.name,
         note,
-        requestedAt: data.meta.lastReportRequestAt
+        requestedAt
       });
     } catch (err) {
       next(err);
@@ -403,16 +417,15 @@ function createRouter() {
         }))
       );
 
-      data.meta = data.meta || {};
-      data.meta.lastParticipantSyncAt = new Date().toISOString();
-      await writeData(data);
+      const requestedAt = new Date().toISOString();
+      await updateMeta({ lastParticipantSyncAt: requestedAt });
 
       res.json({
         ok: true,
         message: "참여자 명단 업데이트 요청을 전송했습니다. 스프레드시트 반영 여부를 확인해 주세요.",
         count: rows.length,
         companies: data.companies.length,
-        requestedAt: data.meta.lastParticipantSyncAt,
+        requestedAt,
         rows
       });
     } catch (err) {
