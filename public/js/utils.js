@@ -1305,6 +1305,82 @@ function snapshotDashboard(companies) {
   return snap;
 }
 
+function changed(left, right) {
+  return JSON.stringify(left ?? null) !== JSON.stringify(right ?? null);
+}
+
+function memberKey(member) {
+  const email = String(member?.email || "").trim().toLowerCase();
+  if (email) return email;
+  return `name:${String(member?.name || "").trim().toLowerCase()}`;
+}
+
+function diffKeyedList(prevList, nextList, keyOf) {
+  const prev = new Map((prevList || []).map((item) => [keyOf(item), item]));
+  const next = new Map();
+  const upsert = [];
+  const deleted = [];
+  (nextList || []).forEach((item) => {
+    const key = keyOf(item);
+    if (!key) return;
+    next.set(key, item);
+    const before = prev.get(key);
+    if (!before) upsert.push({ value: item, base: null });
+    else if (changed(before, item)) upsert.push({ value: item, base: before });
+  });
+  prev.forEach((item, key) => {
+    if (!next.has(key)) deleted.push({ id: key, base: item });
+  });
+  if (!upsert.length && !deleted.length) return null;
+  return { upsert, delete: deleted };
+}
+
+function diffObjectKeys(prev, next) {
+  const sets = {};
+  const keys = new Set([...Object.keys(prev || {}), ...Object.keys(next || {})]);
+  keys.forEach((key) => {
+    if (changed(prev?.[key], next?.[key])) sets[key] = { value: next?.[key] ?? null, base: prev?.[key] ?? null };
+  });
+  return Object.keys(sets).length ? { sets } : null;
+}
+
+function buildUpdate(type, id, prev, row) {
+  const update = type === "weeklyReports" ? { taskId: row.taskId, weekNumber: row.weekNumber } : { id };
+  const sets = {};
+  const scalarFields = {
+    companies: ["name", "schedule", "participantUpdateRequest"],
+    participants: DASHBOARD_ENTITY_FIELDS.participants,
+    tasks: DASHBOARD_ENTITY_FIELDS.tasks.filter(
+      (field) => !["hierarchy", "statistics", "members"].includes(field)
+    ),
+    weeklyReports: DASHBOARD_ENTITY_FIELDS.weeklyReports.filter(
+      (field) => !["id", "taskId", "weekNumber"].includes(field)
+    )
+  };
+  scalarFields[type].forEach((field) => {
+    if (changed(prev[field], row[field])) sets[field] = { value: row[field], base: prev[field] };
+  });
+  if (Object.keys(sets).length) update.sets = sets;
+
+  if (type === "companies") {
+    const noticeOps = diffKeyedList(prev.notices, row.notices, (item) => item.id);
+    const pmoOps = diffKeyedList(prev.pmo?.members, row.pmo?.members, memberKey);
+    if (noticeOps) update.noticeOps = noticeOps;
+    if (pmoOps) update.pmoOps = pmoOps;
+  }
+  if (type === "tasks") {
+    const hierOps = diffObjectKeys(prev.hierarchy, row.hierarchy);
+    const statOps = diffObjectKeys(prev.statistics, row.statistics);
+    const memberOps = diffKeyedList(prev.members, row.members, memberKey);
+    if (hierOps) update.hierOps = hierOps;
+    if (statOps) update.statOps = statOps;
+    if (memberOps) update.memberOps = memberOps;
+  }
+  const hasOps = update.noticeOps || update.pmoOps || update.hierOps || update.statOps || update.memberOps;
+  if (!update.sets && !hasOps) return null;
+  return update;
+}
+
 function buildDashboardChanges(baseline, companies) {
   const base = baseline || { companies: {}, participants: {}, tasks: {}, weeklyReports: {} };
   const current = snapshotDashboard(companies);
@@ -1322,21 +1398,13 @@ function buildDashboardChanges(baseline, companies) {
         created.push({ ...row, id: type === "weeklyReports" ? row.id : key });
         return;
       }
-      const patch = {};
-      DASHBOARD_ENTITY_FIELDS[type].forEach((field) => {
-        if (JSON.stringify(row[field]) !== JSON.stringify(prev[field])) patch[field] = row[field];
-      });
-      if (!Object.keys(patch).length) return;
-      if (type === "weeklyReports") updated.push({ ...patch, taskId: row.taskId, weekNumber: row.weekNumber });
-      else updated.push({ ...patch, id: key });
+      const update = buildUpdate(type, key, prev, row);
+      if (update) updated.push(update);
     });
     Object.keys(before).forEach((key) => {
       if (after[key]) return;
-      if (type === "weeklyReports") {
-        deleted.push({ taskId: before[key].taskId, weekNumber: before[key].weekNumber });
-      } else {
-        deleted.push(key);
-      }
+      if (type === "weeklyReports") deleted.push({ taskId: before[key].taskId, weekNumber: before[key].weekNumber });
+      else deleted.push(key);
     });
     if (created.length || updated.length || deleted.length) changes[type] = { created, updated, deleted };
   });

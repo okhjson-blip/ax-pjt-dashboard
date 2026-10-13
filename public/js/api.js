@@ -1,7 +1,15 @@
+let authToken = "";
+
 const API = {
+  setToken(token) {
+    authToken = token || "";
+  },
+
   async request(path, options = {}) {
+    const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+    if (authToken && !headers.Authorization) headers.Authorization = `Bearer ${authToken}`;
     const res = await fetch(`/api${path}`, {
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      headers,
       ...options
     });
     let body = null;

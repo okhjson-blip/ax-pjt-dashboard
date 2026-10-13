@@ -172,238 +172,32 @@ async function readData() {
   });
 }
 
-const DEFAULT_PARTICIPANT_UPDATE_REQUEST = {
-  pending: false,
-  message: "",
-  requestedAt: null,
-  acknowledgedAt: null
-};
-
-const TASK_EXTRAS_DEFAULTS = {
-  startDate: "",
-  endDate: "",
-  goal: "",
-  asIsProcess: "",
-  toBeProcess: "",
-  difficulty: "중",
-  workStatus: "개발",
-  hierarchy: { l1: "", l2: "", l3: "", l4: "" },
-  statistics: {},
-  members: [],
-  projectName: "",
-  bdwSummary: "",
-  bdwDetail: "",
-  aiFit: "",
-  asIsProcessDetail: ""
-};
-
-const PARTICIPANT_COLUMNS = {
-  companyId: ["company_id", (v) => v],
-  name: ["name", (v) => String(v ?? "")],
-  email: ["email", (v) => String(v ?? "")],
-  dept: ["dept", (v) => v || ""],
-  status: ["status", (v) => v || "정상"],
-  summary: ["summary", (v) => v || ""],
-  nextWeekPlan: ["next_week_plan", (v) => v || ""],
-  instructorMemo: ["instructor_memo", (v) => v || ""],
-  registeredAt: ["registered_at", (v) => v || null]
-};
-
-const TASK_COLUMNS = {
-  participantId: ["participant_id", (v) => v],
-  name: ["name", (v) => String(v ?? "")],
-  progress: ["progress", (v) => Number(v || 0)],
-  weeklySummary: ["weekly_summary", (v) => v || ""],
-  weeklyDetail: ["weekly_detail", (v) => v || ""],
-  weeklyIssues: ["weekly_issues", (v) => v || ""],
-  nextWeekPlan: ["next_week_plan", (v) => v || ""],
-  instructorFeedback: ["instructor_feedback", (v) => v || ""],
-  reportCompleted: ["report_completed", (v) => Boolean(v)]
-};
-
-const WEEKLY_REPORT_COLUMNS = {
-  progress: ["progress", (v) => Number(v || 0)],
-  weeklySummary: ["weekly_summary", (v) => v || ""],
-  weeklyDetail: ["weekly_detail", (v) => v || ""],
-  weeklyIssues: ["weekly_issues", (v) => v || ""],
-  nextWeekPlan: ["next_week_plan", (v) => v || ""],
-  instructorFeedback: ["instructor_feedback", (v) => v || ""],
-  workStatus: ["work_status", (v) => v || ""],
-  reportCompleted: ["report_completed", (v) => Boolean(v)],
-  savedAt: ["saved_at", (v) => v || new Date().toISOString()]
-};
-
-function pickColumns(source, columns) {
-  const row = {};
-  for (const [field, [column, convert]] of Object.entries(columns)) {
-    if (Object.prototype.hasOwnProperty.call(source, field)) row[column] = convert(source[field]);
-  }
-  return row;
-}
-
-function companyExtrasPatch(source) {
-  const extras = {};
-  if ("pmo" in source) extras.pmo = normalizePmo(source.pmo);
-  if ("notices" in source) extras.notices = Array.isArray(source.notices) ? source.notices : [];
-  if ("participantUpdateRequest" in source) {
-    extras.participantUpdateRequest = source.participantUpdateRequest || DEFAULT_PARTICIPANT_UPDATE_REQUEST;
-  }
-  return extras;
-}
-
-function companyColumnsPatch(source) {
-  const row = {};
-  if ("name" in source) row.name = String(source.name ?? "");
-  if ("schedule" in source) {
-    row.start_date = source.schedule?.startDate || null;
-    row.kickoff_date = source.schedule?.kickoffDate || null;
-    row.end_date = source.schedule?.endDate || null;
-  }
-  return row;
-}
-
-function taskExtrasPatch(source) {
-  const extras = {};
-  for (const [key, fallback] of Object.entries(TASK_EXTRAS_DEFAULTS)) {
-    if (!(key in source)) continue;
-    const value = source[key];
-    if (Array.isArray(fallback)) extras[key] = Array.isArray(value) ? value : fallback;
-    else if (typeof fallback === "object") extras[key] = value && typeof value === "object" ? value : fallback;
-    else extras[key] = value || fallback;
-  }
-  return extras;
-}
-
-function companyRow(company) {
-  return {
-    id: company.id,
-    ...companyColumnsPatch({ name: company.name, schedule: company.schedule || {} }),
-    extras: companyExtrasPatch({
-      pmo: company.pmo,
-      notices: company.notices,
-      participantUpdateRequest: company.participantUpdateRequest
-    })
-  };
-}
-
-function participantRow(participant) {
-  const full = {};
-  for (const field of Object.keys(PARTICIPANT_COLUMNS)) full[field] = participant[field];
-  return { id: participant.id, ...pickColumns(full, PARTICIPANT_COLUMNS) };
-}
-
-function taskRow(task) {
-  const full = {};
-  for (const field of Object.keys(TASK_COLUMNS)) full[field] = task[field];
-  const extrasSource = {};
-  for (const key of Object.keys(TASK_EXTRAS_DEFAULTS)) extrasSource[key] = task[key];
-  return { id: task.id, ...pickColumns(full, TASK_COLUMNS), extras: taskExtrasPatch(extrasSource) };
-}
-
-function weeklyReportRow(report) {
-  const weekNumber = Number(report.weekNumber);
-  const full = {};
-  for (const field of Object.keys(WEEKLY_REPORT_COLUMNS)) full[field] = report[field];
-  return {
-    id: report.id || weeklyReportId(report.taskId, weekNumber),
-    task_id: report.taskId,
-    week_number: weekNumber,
-    ...pickColumns(full, WEEKLY_REPORT_COLUMNS)
-  };
-}
-
-function toConflictError(error) {
-  if (error?.code === "23505") {
+function mapChangeError(error) {
+  const msg = String(error?.message || "");
+  if (error?.code === "23505" || /23505|duplicate key/i.test(msg)) {
     return new StoreConflictError("이미 등록된 이메일입니다. 기존 정보로 로그인해 주세요.");
   }
-  if (error?.code === "23503") {
-    return new StoreConflictError(
-      "다른 사용자가 상위 항목(협력사·참여자·과제)을 삭제했습니다. 새로고침 후 다시 시도해 주세요."
-    );
+  if (error?.code === "23503" || /23503|foreign key/i.test(msg) || /missing/i.test(msg)) {
+    return new StoreConflictError("다른 사용자가 이 항목을 삭제했습니다. 최신 내용을 불러온 뒤 다시 저장해 주세요.");
+  }
+  if (error?.code === "P0001" || /conflict/i.test(msg)) {
+    return new StoreConflictError("다른 사용자가 같은 내용을 먼저 수정했습니다. 최신 내용을 불러온 뒤 다시 저장해 주세요.");
   }
   return error;
 }
 
-function check({ error }) {
-  if (error) throw toConflictError(error);
-}
-
-async function updateRowsWithExtras(sb, table, updates, buildColumns, buildExtras) {
-  const extrasIds = updates.filter((u) => Object.keys(buildExtras(u)).length).map((u) => u.id);
-  const currentExtras = new Map();
-  if (extrasIds.length) {
-    const { data, error } = await sb.from(table).select("id, extras").in("id", extrasIds);
-    if (error) throw error;
-    for (const row of data || []) currentExtras.set(row.id, row.extras || {});
-  }
-  for (const update of updates) {
-    const patch = buildColumns(update);
-    const extrasPatch = buildExtras(update);
-    if (Object.keys(extrasPatch).length) {
-      if (!currentExtras.has(update.id)) continue;
-      patch.extras = { ...currentExtras.get(update.id), ...extrasPatch };
-    }
-    if (!Object.keys(patch).length) continue;
-    check(await sb.from(table).update(patch).eq("id", update.id));
-  }
-}
-
-// 클라이언트가 보낸 변경분(생성·수정 필드·명시적 삭제)만 반영한다. 다른 사용자의 행은 건드리지 않는다.
 async function applyChanges(rawChanges) {
   const changes = normalizeChanges(rawChanges);
   if (!countChanges(changes)) return;
   return withSupabaseRetry(async () => {
     const sb = getSupabaseAdmin();
-    const { companies, participants, tasks, weeklyReports } = changes;
-
-    for (const row of weeklyReports.deleted) {
-      check(
-        await sb
-          .from("task_weekly_reports")
-          .delete()
-          .eq("task_id", row.taskId)
-          .eq("week_number", Number(row.weekNumber))
-      );
-    }
-    if (tasks.deleted.length) check(await sb.from("tasks").delete().in("id", tasks.deleted));
-    if (participants.deleted.length) check(await sb.from("participants").delete().in("id", participants.deleted));
-    if (companies.deleted.length) check(await sb.from("companies").delete().in("id", companies.deleted));
-
-    if (companies.created.length) {
-      check(await sb.from("companies").upsert(companies.created.map(companyRow), { onConflict: "id" }));
-    }
-    if (participants.created.length) {
-      check(await sb.from("participants").upsert(participants.created.map(participantRow), { onConflict: "id" }));
-    }
-    if (tasks.created.length) {
-      check(await sb.from("tasks").upsert(tasks.created.map(taskRow), { onConflict: "id" }));
-    }
-    if (weeklyReports.created.length) {
-      check(
-        await sb
-          .from("task_weekly_reports")
-          .upsert(weeklyReports.created.map(weeklyReportRow), { onConflict: "task_id,week_number" })
-      );
-    }
-
-    await updateRowsWithExtras(sb, "companies", companies.updated, companyColumnsPatch, companyExtrasPatch);
-    for (const update of participants.updated) {
-      const patch = pickColumns(update, PARTICIPANT_COLUMNS);
-      if (Object.keys(patch).length) check(await sb.from("participants").update(patch).eq("id", update.id));
-    }
-    await updateRowsWithExtras(sb, "tasks", tasks.updated, (u) => pickColumns(u, TASK_COLUMNS), taskExtrasPatch);
-    for (const update of weeklyReports.updated) {
-      const patch = pickColumns(update, WEEKLY_REPORT_COLUMNS);
-      if (!Object.keys(patch).length) continue;
-      check(
-        await sb
-          .from("task_weekly_reports")
-          .update(patch)
-          .eq("task_id", update.taskId)
-          .eq("week_number", Number(update.weekNumber))
-      );
-    }
+    const { error } = await sb.rpc("apply_dashboard_changes", { p_changes: changes });
+    if (error) throw mapChangeError(error);
   });
+}
+
+function check({ error }) {
+  if (error) throw mapChangeError(error);
 }
 
 async function updateMeta(patch) {

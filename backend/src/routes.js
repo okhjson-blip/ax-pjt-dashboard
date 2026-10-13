@@ -17,6 +17,9 @@ const {
 } = require("./weekly-report");
 const { draftNarratives } = require("./report-draft");
 const { matchesCompanyPmo } = require("./pmo");
+const { signSession, actorFromRequest } = require("./session");
+const { assertCanApply } = require("./access");
+const { normalizeChanges } = require("./store-changes");
 
 async function applyNarrativeDraft(report, company, { onlyBlank = false } = {}) {
   if (!report?.body) return report;
@@ -50,6 +53,29 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin2026";
 
 function nameKey(value) {
   return String(value || "").replace(/\s+/g, "").toLowerCase();
+}
+
+function withToken(actor) {
+  return { ...actor, token: signSession(actor) };
+}
+
+function requireActor(req, res) {
+  const actor = actorFromRequest(req);
+  if (!actor) {
+    res.status(401).json({ error: "로그인이 필요합니다. 다시 로그인해 주세요." });
+    return null;
+  }
+  return actor;
+}
+
+function requireAdmin(req, res) {
+  const actor = requireActor(req, res);
+  if (!actor) return null;
+  if (actor.role !== "admin") {
+    res.status(403).json({ error: "관리자만 실행할 수 있습니다." });
+    return null;
+  }
+  return actor;
 }
 
 function createRouter() {
@@ -91,11 +117,16 @@ function createRouter() {
 
   router.patch("/dashboard", async (req, res, next) => {
     try {
+      const actor = requireActor(req, res);
+      if (!actor) return;
       const changes = req.body?.changes;
       if (!changes || typeof changes !== "object") {
         return res.status(400).json({ error: "changes 객체가 필요합니다." });
       }
-      await applyChanges(changes);
+      const current = await readData();
+      const normalized = normalizeChanges(changes);
+      assertCanApply(actor, normalized, current);
+      await applyChanges(normalized);
       await updateMeta({ lastSavedAt: new Date().toISOString() });
       res.json(await readData());
     } catch (err) {
@@ -108,7 +139,7 @@ function createRouter() {
     if (password !== ADMIN_PASSWORD) {
       return res.status(401).json({ error: "비밀번호가 올바르지 않습니다." });
     }
-    res.json({ role: "admin", name: "관리자" });
+    res.json(withToken({ role: "admin", name: "관리자" }));
   });
 
   router.post("/auth/participant", async (req, res, next) => {
@@ -131,13 +162,15 @@ function createRouter() {
       const participant = byEmail && nameKey(byEmail.name) === nameKey(name) ? byEmail : null;
 
       if (matchesCompanyPmo(company, name, email)) {
-        return res.json({
-          role: "pmo",
-          name,
-          email,
-          companyId: company.id,
-          participantId: participant?.id || null
-        });
+        return res.json(
+          withToken({
+            role: "pmo",
+            name,
+            email,
+            companyId: company.id,
+            participantId: participant?.id || null
+          })
+        );
       }
 
       if (byEmail && !participant) {
@@ -153,12 +186,15 @@ function createRouter() {
         });
       }
 
-      res.json({
-        role: "participant",
-        name: participant.name,
-        participantId: participant.id,
-        companyId: company.id
-      });
+      res.json(
+        withToken({
+          role: "participant",
+          name: participant.name,
+          participantId: participant.id,
+          companyId: company.id,
+          email: participant.email
+        })
+      );
     } catch (err) {
       next(err);
     }
@@ -207,12 +243,15 @@ function createRouter() {
 
       await applyChanges({ participants: { created: [participant] } });
 
-      res.status(201).json({
-        role: "participant",
-        name: participant.name,
-        participantId: participant.id,
-        companyId: company.id
-      });
+      res.status(201).json(
+        withToken({
+          role: "participant",
+          name: participant.name,
+          email: participant.email,
+          participantId: participant.id,
+          companyId: company.id
+        })
+      );
     } catch (err) {
       next(err);
     }
@@ -261,6 +300,7 @@ function createRouter() {
 
   router.put("/companies/:companyId/weekly-reports/:week", async (req, res, next) => {
     try {
+      if (!requireAdmin(req, res)) return;
       const companyId = String(req.params.companyId || "");
       const weekNumber = Number(req.params.week);
       if (!companyId || !Number.isInteger(weekNumber) || weekNumber < 1) {
@@ -291,6 +331,7 @@ function createRouter() {
 
   router.post("/companies/:companyId/weekly-reports/:week/assemble", async (req, res, next) => {
     try {
+      if (!requireAdmin(req, res)) return;
       const companyId = String(req.params.companyId || "");
       const weekNumber = Number(req.params.week);
       if (!companyId || !Number.isInteger(weekNumber) || weekNumber < 1) {
@@ -340,6 +381,7 @@ function createRouter() {
 
   router.post("/companies/:companyId/weekly-reports/:week/publish", async (req, res, next) => {
     try {
+      if (!requireAdmin(req, res)) return;
       const companyId = String(req.params.companyId || "");
       const weekNumber = Number(req.params.week);
       if (!companyId || !Number.isInteger(weekNumber) || weekNumber < 1) {
@@ -380,6 +422,7 @@ function createRouter() {
 
   router.post("/reports/publish", async (req, res, next) => {
     try {
+      if (!requireAdmin(req, res)) return;
       const companyId = String(req.body?.companyId || "");
       const note = String(req.body?.note || "").trim();
       const data = await readData();
@@ -405,8 +448,9 @@ function createRouter() {
     }
   });
 
-  router.post("/participants/sync", async (_req, res, next) => {
+  router.post("/participants/sync", async (req, res, next) => {
     try {
+      if (!requireAdmin(req, res)) return;
       const data = await readData();
       const rows = data.companies.flatMap((company) =>
         company.participants.map((participant) => ({

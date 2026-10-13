@@ -291,7 +291,14 @@
       return true;
     } catch (err) {
       toast(err.message || "저장에 실패했습니다.");
-      if (err.status === 409) {
+      if (err.status === 401) {
+        state.auth = null;
+        state.view = "login";
+        API.setToken("");
+        render();
+        return false;
+      }
+      if (err.status === 403 || err.status === 409) {
         try {
           await reloadDashboardData();
           render();
@@ -2118,8 +2125,10 @@
     try {
       if (!state.auth) {
         sessionStorage.removeItem(SESSION_STORAGE_KEY);
+        API.setToken("");
         return;
       }
+      API.setToken(state.auth.token || "");
       sessionStorage.setItem(
         SESSION_STORAGE_KEY,
         JSON.stringify({
@@ -2143,7 +2152,7 @@
       saved = null;
     }
     const auth = saved?.auth;
-    if (!auth?.role) return false;
+    if (!auth?.role || !auth.token) return false;
     const company = state.companies.find((c) => c.id === auth.companyId);
     if (auth.role === "participant") {
       if (!company?.participants.some((p) => p.id === auth.participantId)) return false;
