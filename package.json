@@ -16,7 +16,8 @@
     "db:seed": "supabase db query --linked -f supabase/seed.sql",
     "db:link": "supabase link --yes",
     "db:projects": "supabase projects list",
-    "db:migration:new": "supabase migration new"
+    "db:migration:new": "supabase migration new",
+    "test": "node --test test/*.test.cjs"
   },
   "engines": {
     "node": "24.x"
@@ -25,5 +26,8 @@
     "@supabase/supabase-js": "^2.57.4",
     "cors": "^2.8.5",
     "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.9"
   }
 }

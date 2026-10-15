@@ -247,6 +247,8 @@
     return isAdmin() || isMine(participant);
   }
 
+  function canManageHubParticipants(company = currentCompany()) { return isAdmin() || (isPmo() && company?.id === state.auth?.companyId); }
+
   function canManageNotices(company) {
     if (!company) return false;
     return isAdmin() || (isPmo() && company.id === state.auth?.companyId);
@@ -286,7 +288,12 @@
     try {
       state.saving = true;
       const saved = await API.saveDashboardChanges(changes);
-      if (seq === saveSeq) applyDashboardData(saved);
+      if (seq === saveSeq) {
+        applyDashboardData(saved);
+        if (isPmo() && !currentCompany()?.participants.some(p => p.id === state.auth.participantId)) {
+          state.auth=await API.session(); API.setToken(state.auth.token); await reloadDashboardData();
+        }
+      }
       if (message) toast(message);
       return true;
     } catch (err) {
@@ -298,14 +305,8 @@
         render();
         return false;
       }
-      if (err.status === 403 || err.status === 409) {
-        try {
-          await reloadDashboardData();
-          render();
-        } catch {
-          /* 새로고침 실패 시 기존 화면 유지 */
-        }
-      }
+      // Keep the draft and DOM inputs on conflicts/denials; explicit refresh discards them.
+      if (err.status === 403 || err.status === 409) toast('입력 내용은 유지했습니다. 최신 데이터로 다시 불러오려면 업데이트를 누르세요.');
       return false;
     } finally {
       state.saving = false;
@@ -317,7 +318,10 @@
       toast("관리자 권한이 필요한 화면입니다.");
       return;
     }
-    if (view === "personal") lockToOwnParticipant();
+    if (view === 'personal') {
+      if (!isAdmin() && state.auth?.participantId) state.selectedParticipantId = state.auth.participantId;
+      lockToOwnParticipant();
+    }
     state.view = view;
     render();
     maybeShowParticipantUpdatePopup();
@@ -521,7 +525,7 @@
       return `
         ${isAdmin() ? '<button class="btn primary" data-action="open-report">레포트 발행</button>' : ""}
         ${canManageNotices(currentCompany()) ? '<button class="btn ghost" data-action="open-add-notice">공지 등록</button>' : ""}
-        <button class="btn ghost" data-action="open-add-participant">참여자 등록</button>
+${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-participant">참여자 등록</button>' : ""}
         <button class="btn ghost" data-action="refresh-dashboard" title="DB에서 최신 데이터를 다시 불러옵니다">업데이트</button>
       `;
     }
@@ -530,7 +534,7 @@
         '<p class="timeout-hint">' +
         '<span class="timeout-hint-line">입력 후에는 저장해 주세요</span>' +
         "</p>";
-      if (isAdmin() && isViewingCurrentWeek()) {
+      if (isAdmin()) {
         return `${hint}<button class="btn primary" data-action="save-feedback">피드백 저장</button>`;
       }
       return hint;
@@ -870,6 +874,7 @@
               ${renderStat("총 과제", taskCount)}
             </div>
           </div>
+          ${canManageHubParticipants(company) ? renderAdminParticipantOverview(company, {canDelete:true}) : ""}
           ${renderPmoPanel(company)}
           ${renderNoticesPanel(company)}
           ${renderOpsCheckPanel(company)}
@@ -952,7 +957,7 @@
                     </button>
                     ${
                       canDelete
-                        ? `<button type="button" class="btn ghost small danger" data-action="delete-participant" data-company="${company.id}" data-participant="${participant.id}" title="참여자 삭제">삭제</button>`
+                        ? `<button type="button" class="btn ghost small" data-action="edit-participant" data-company="${company.id}" data-participant="${participant.id}">수정</button><button type="button" class="btn ghost small danger" data-action="delete-participant" data-company="${company.id}" data-participant="${participant.id}" title="참여자 삭제">삭제</button>`
                         : ""
                     }
                   </div>
@@ -973,7 +978,7 @@
     const browseCompany = canBrowseCompany(company);
     if (!company.participants.length) {
       return `
-        ${browseCompany ? renderAdminParticipantOverview(company, { canDelete: isAdmin() }) : ""}
+        ${browseCompany ? renderAdminParticipantOverview(company, { canDelete: canManageHubParticipants(company) }) : ""}
         <div class="empty">선택된 참여자가 없습니다. 협력사 허브에서 참여자를 선택하세요.</div>
       `;
     }
@@ -989,11 +994,11 @@
     if (!canViewParticipant(participant)) {
       return '<div class="empty">본인 과제만 열람할 수 있습니다.</div>';
     }
-    const editable = isMine(participant);
+    const editable = isMine(participant) || isAdmin();
     const canManageTasks = canManageParticipant(participant);
     const viewingCurrent = isViewingCurrentWeek(company);
-    const canEditReport = editable && viewingCurrent;
-    const canEditFeedback = isAdmin() && viewingCurrent;
+    const canEditReport = editable && (viewingCurrent || isAdmin());
+    const canEditFeedback = isAdmin();
     const week = selectedWeekNumber(company);
     const schedule = scheduleStatus(company, participant);
     const task = currentTask();
@@ -1004,7 +1009,7 @@
 
     return `
       <div class="grid" style="gap:16px">
-        ${browseCompany ? renderAdminParticipantOverview(company, { canDelete: isAdmin() }) : ""}
+        ${browseCompany ? renderAdminParticipantOverview(company, { canDelete: canManageHubParticipants(company) }) : ""}
       <div class="grid detail-grid">
         <div class="grid">
           <div class="card card-pad">
@@ -1122,13 +1127,13 @@
               </div>
               ${
                 canEditReport
-                  ? '<button class="btn primary small" data-action="save-personal">내 보고 저장</button>'
+                  ? '<div><button class="btn primary small" data-action="save-personal">보고 저장</button> <button class="btn ghost small danger" data-action="delete-personal-report">보고 삭제</button></div>'
                   : ""
               }
             </div>
             ${
               participant.tasks.length
-                ? reportView.missing && !viewingCurrent
+                ? reportView.missing && !viewingCurrent && !isAdmin()
                   ? `<div class="empty">${week}주차에 저장된 주간 보고가 없습니다.</div>
               <div class="field">
                 <label for="report-task">과제 선택</label>
@@ -1184,6 +1189,7 @@
     const modalMap = {
       addCompany: renderAddCompanyModal,
       addParticipant: renderAddParticipantModal,
+      editParticipant: renderAddParticipantModal,
       addTask: renderAddTaskModal,
       schedule: renderScheduleModal,
       report: renderReportModal,
@@ -1229,18 +1235,13 @@
   }
 
   function renderAddParticipantModal() {
-    return modalShell(
-      "참여자 등록",
-      `
-      <div class="field"><label>이름</label><input id="new-name" placeholder="참여자 이름" /></div>
-      <div class="field"><label>이메일</label><input id="new-email" type="email" placeholder="name@example.com" /></div>
-      <div class="field"><label>부서</label><input id="new-dept" placeholder="부서명" /></div>
-    `,
-      `
-      <button class="btn ghost" data-action="close-modal">취소</button>
-      <button class="btn primary" data-action="add-participant">등록</button>
-    `
-    );
+    const company=state.companies.find(c => c.id === state.form.companyId) || currentCompany();
+    const p=company.participants.find(p => p.id === (state.modal === 'editParticipant' ? state.form.participantId : state.form.pendingParticipantId));
+    return modalShell(p ? '참여자 수정' : '참여자 등록',
+      '<div class="field"><label>이름</label><input id="new-name" value="'+escapeHtml(p?.name || '')+'" /></div>'+
+      '<div class="field"><label>이메일</label><input id="new-email" type="email" value="'+escapeHtml(p?.email || '')+'" /></div>'+
+      '<div class="field"><label>부서</label><input id="new-dept" value="'+escapeHtml(p?.dept || '')+'" /></div>',
+      '<button class="btn ghost" data-action="close-modal">취소</button><button class="btn primary" data-action="add-participant">'+(p?'수정 저장':'등록')+'</button>');
   }
 
   function difficultySelectHtml(id, selected = "중", disabled = false) {
@@ -2190,19 +2191,27 @@
     return data;
   }
 
+  async function loadPublicCompanies() {
+    const data=await API.getCompanies();
+    applyDashboardData({companies:(data.companies || []).map(c => ({...c,participants:[]})),meta:{}});
+  }
   async function bootstrap() {
     try {
-      await reloadDashboardData();
-      state.selectedCompanyId = state.companies[0]?.id || null;
-      state.selectedParticipantId = state.companies[0]?.participants[0]?.id || null;
-      state.selectedTaskId = state.companies[0]?.participants[0]?.tasks[0]?.id || null;
-      restoreSession();
-      state.loading = false;
-      render();
-      maybeShowParticipantUpdatePopup();
+      let saved=null;
+      try { saved=JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY) || 'null'); } catch {}
+      if (saved?.auth?.token) {
+        API.setToken(saved.auth.token);
+        try {
+          const auth=await API.session(); state.auth=auth; API.setToken(auth.token);
+          sessionStorage.setItem(SESSION_STORAGE_KEY,JSON.stringify({...saved,auth}));
+          await reloadDashboardData(); restoreSession();
+        } catch (err) { if (![401,403].includes(err.status)) throw err; state.auth=null; API.setToken(''); }
+      }
+      if (!state.auth) { await loadPublicCompanies(); state.view='login'; }
+      state.loading=false; render(); maybeShowParticipantUpdatePopup();
     } catch (err) {
-      state.loading = false;
-      app.innerHTML = `<div class="empty" style="margin:48px auto; max-width:480px">데이터를 불러오지 못했습니다.<br />${escapeHtml(err.message)}<br /><br /><button class="btn primary" onclick="location.reload()">다시 시도</button></div>`;
+      state.loading=false;
+      app.innerHTML='<div class="empty" style="margin:48px auto; max-width:480px">데이터를 불러오지 못했습니다.<br />'+escapeHtml(err.message)+'<br /><button class="btn primary" onclick="location.reload()">다시 시도</button></div>';
     }
   }
 
@@ -2212,6 +2221,7 @@
     const el = event.target.closest("[data-action]");
     if (!el) return;
     const action = el.dataset.action;
+    if (state.saving && /^(save-|add-|delete-)/.test(action)) return;
 
     if (action === "login-tab") {
       state.loginTab = el.dataset.tab;
@@ -2222,8 +2232,9 @@
       const password = document.getElementById("admin-password").value;
       try {
         const auth = await API.adminLogin(password);
-        await reloadDashboardData();
         state.auth = auth;
+        API.setToken(auth.token);
+        await reloadDashboardData();
         state.view = "admin";
         toast("관리자 모드로 로그인했습니다.");
         render();
@@ -2238,8 +2249,9 @@
       const email = document.getElementById("login-email").value.trim().toLowerCase();
       try {
         const auth = await API.participantLogin({ companyId, name, email });
-        await reloadDashboardData();
         state.auth = auth;
+        API.setToken(auth.token);
+        await reloadDashboardData();
         state.selectedCompanyId = auth.companyId;
         state.selectedParticipantId = auth.participantId;
         state.view = "company";
@@ -2262,8 +2274,9 @@
       const dept = document.getElementById("login-dept").value.trim();
       try {
         const auth = await API.participantRegister({ companyId, name, email, dept });
-        await reloadDashboardData();
         state.auth = auth;
+        API.setToken(auth.token);
+        await reloadDashboardData();
         state.selectedCompanyId = auth.companyId;
         state.selectedParticipantId = auth.participantId;
         state.view = "personal";
@@ -2294,6 +2307,8 @@
     if (action === "logout") {
       state.auth = null;
       state.view = "login";
+      API.setToken("");
+      await loadPublicCompanies();
       toast("로그아웃했습니다.");
       render();
     }
@@ -2390,7 +2405,15 @@
 
     if (action === "nav") setView(el.dataset.view);
     if (action === "open-add-company") openModal("addCompany");
-    if (action === "open-add-participant") openModal("addParticipant");
+    if (action === 'open-add-participant') {
+      if (!canManageHubParticipants()) return toast('참여자 관리 권한이 없습니다.');
+      openModal('addParticipant',{companyId:currentCompany().id});
+    }
+    if (action === 'edit-participant') {
+      const company=state.companies.find(c => c.id === el.dataset.company);
+      if (!canManageHubParticipants(company)) return toast('참여자 관리 권한이 없습니다.');
+      openModal('editParticipant',{companyId:company.id,participantId:el.dataset.participant});
+    }
     if (action === "open-report") {
       if (!isAdmin()) return toast("관리자만 레포트를 발행할 수 있습니다.");
       const company = currentCompany();
@@ -2468,7 +2491,7 @@
     }
 
     if (action === "delete-participant") {
-      if (!isAdmin()) return toast("관리자만 참여자를 삭제할 수 있습니다.");
+      if (!canManageHubParticipants(state.companies.find(c => c.id === el.dataset.company) || currentCompany())) return toast("참여자 관리 권한이 없습니다.");
       const company = state.companies.find((c) => c.id === el.dataset.company) || currentCompany();
       const participant = company?.participants?.find((p) => p.id === el.dataset.participant);
       if (!company || !participant) return toast("참여자를 찾을 수 없습니다.");
@@ -2585,8 +2608,7 @@
         company.participantUpdateRequest.pending = false;
         company.participantUpdateRequest.acknowledgedAt = new Date().toISOString();
       }
-      await persist("참여자 업데이트 요청을 확인했습니다.");
-      closeModal();
+      if (await persist("참여자 업데이트 요청을 확인했습니다.")) closeModal();
     }
 
     if (action === "save-notice") {
@@ -2602,15 +2624,15 @@
         existing.content = content;
         existing.updatedAt = new Date().toISOString();
       } else {
+        state.form.noticeId = uid("n");
         company.notices.push({
-          id: uid("n"),
+          id: state.form.noticeId,
           title,
           content,
           createdAt: new Date().toISOString()
         });
       }
-      await persist(existing ? "공지사항을 수정했습니다." : "공지사항을 등록했습니다.");
-      closeModal();
+      if (await persist(existing ? "공지사항을 수정했습니다." : "공지사항을 등록했습니다.")) closeModal();
     }
 
     if (action === "publish-report") {
@@ -2709,59 +2731,29 @@
       }
     }
 
-    if (action === "save-personal") {
-      const company = currentCompany();
-      const participant = currentParticipant();
-      if (!isMine(participant)) {
-        window.alert("본인 주간 보고만 저장할 수 있습니다.");
+    if (action === 'save-personal' || action === 'save-feedback' || action === 'delete-personal-report') {
+      const company=currentCompany(),participant=currentParticipant(),task=currentTask();
+      if (!task) return toast('과제를 먼저 추가해 주세요.');
+      if (!canManageParticipant(participant)) return toast('본인 보고서만 수정할 수 있습니다.');
+      if (action === 'save-feedback' && !isAdmin()) return toast('관리자만 피드백을 수정할 수 있습니다.');
+      const current=isViewingCurrentWeek(company),week=selectedWeekNumber(company);
+      if (!current && !isAdmin()) return toast('과거 주차는 조회만 가능합니다.');
+      if (action === 'delete-personal-report') {
+        if (!window.confirm('선택한 주간보고를 삭제할까요? 과제는 유지됩니다.')) return;
+        task.weeklyReports=task.weeklyReports.filter(r => Number(r.weekNumber)!==week);
+        if (current) Object.assign(task,{weeklySummary:'',weeklyDetail:'',weeklyIssues:'',nextWeekPlan:'',reportCompleted:false});
+        if (await persist('주간보고를 삭제했습니다.')) render();
         return;
       }
-      if (!isViewingCurrentWeek(company)) {
-        return toast("과거 주차는 조회만 가능합니다. 이번 주로 전환한 뒤 저장하세요.");
-      }
-      const task = currentTask();
-      if (!task) return toast("과제를 먼저 추가해 주세요.");
-      const weeklySummary = (document.getElementById("weekly-summary")?.value || "").trim();
-      const weeklyDetail = (document.getElementById("weekly-detail")?.value || "").trim();
-      const weeklyIssues = (document.getElementById("weekly-issues")?.value || "").trim();
-      const nextWeekPlan = (document.getElementById("task-next-plan")?.value || "").trim();
-      if (!weeklySummary || !nextWeekPlan) {
-        window.alert("금주 진전과 차주 계획을 모두 입력한 뒤 저장해 주세요.");
-        return;
-      }
-      const progressInput = document.getElementById("report-progress");
-      if (progressInput) {
-        task.progress = Math.min(100, Math.max(0, Number(progressInput.value || 0)));
-      }
-      task.weeklySummary = weeklySummary;
-      task.weeklyDetail = weeklyDetail;
-      task.weeklyIssues = weeklyIssues;
-      task.nextWeekPlan = nextWeekPlan;
-      task.reportCompleted = true;
-      upsertTaskWeekSnapshot(task, currentWeekNumber(company), taskReportPatch(task, { reportCompleted: true }));
-      await persist("선택한 과제의 주간 보고를 저장했으며 '작성완료'로 업데이트되었습니다.");
-      render();
-    }
-
-    if (action === "save-feedback") {
-      if (!isAdmin()) {
-        window.alert("관리자만 피드백을 저장할 수 있습니다.");
-        return;
-      }
-      const company = currentCompany();
-      if (!isViewingCurrentWeek(company)) {
-        return toast("과거 주차의 피드백은 수정할 수 없습니다.");
-      }
-      const task = currentTask();
-      if (!task) return toast("과제를 먼저 추가해 주세요.");
-      task.weeklySummary = document.getElementById("weekly-summary")?.value || task.weeklySummary || "";
-      task.weeklyDetail = document.getElementById("weekly-detail")?.value || task.weeklyDetail || "";
-      task.weeklyIssues = document.getElementById("weekly-issues")?.value || task.weeklyIssues || "";
-      task.nextWeekPlan = document.getElementById("task-next-plan")?.value || task.nextWeekPlan || "";
-      task.instructorFeedback = document.getElementById("task-feedback")?.value || "";
-      upsertTaskWeekSnapshot(task, currentWeekNumber(company), taskReportPatch(task));
-      await persist("선택한 과제의 컨설턴트 피드백을 저장했습니다.");
-      render();
+      const patch={...viewTaskReport(task,company),weeklySummary:(document.getElementById('weekly-summary')?.value || '').trim(),weeklyDetail:(document.getElementById('weekly-detail')?.value || '').trim(),weeklyIssues:(document.getElementById('weekly-issues')?.value || '').trim(),nextWeekPlan:(document.getElementById('task-next-plan')?.value || '').trim()};
+      if (action === 'save-personal' && (!patch.weeklySummary || !patch.nextWeekPlan)) return window.alert('금주 진전과 차주 계획을 모두 입력한 뒤 저장해 주세요.');
+      if (isAdmin()) patch.instructorFeedback=document.getElementById('task-feedback')?.value || '';
+      const input=document.getElementById('report-progress');
+      if (input) patch.progress=Math.min(100,Math.max(0,Number(input.value || 0)));
+      if (action === 'save-personal') patch.reportCompleted=true;
+      if (current) Object.assign(task,Object.fromEntries(Object.keys(taskReportPatch(task)).map(k => [k,patch[k]])));
+      upsertTaskWeekSnapshot(task,week,patch);
+      if (await persist(action === 'save-feedback' ? '피드백을 저장했습니다.' : '주간보고를 저장했습니다.')) render();
     }
 
     if (action === "add-company") {
@@ -2807,24 +2799,17 @@
       }
     }
 
-    if (action === "add-participant") {
-      const name = document.getElementById("new-name").value.trim();
-      const email = document.getElementById("new-email").value.trim();
-      const dept = document.getElementById("new-dept").value.trim();
-      if (!name || !email || !dept) return toast("이름, 이메일, 부서를 모두 입력해 주세요.");
-      currentCompany().participants.push({
-        id: uid("p"),
-        name,
-        email,
-        dept,
-        status: "정상",
-        summary: "",
-        nextWeekPlan: "",
-        instructorMemo: "",
-        tasks: []
-      });
-      await persist("참여자를 등록했습니다.");
-      closeModal();
+    if (action === 'add-participant') {
+      const company=state.companies.find(c => c.id === state.form.companyId) || currentCompany();
+      if (!canManageHubParticipants(company)) return toast('참여자 관리 권한이 없습니다.');
+      const name=document.getElementById('new-name').value.trim();
+      const email=document.getElementById('new-email').value.trim().toLowerCase();
+      const dept=document.getElementById('new-dept').value.trim();
+      if (!name || !email || !dept) return toast('이름, 이메일, 부서를 모두 입력해 주세요.');
+      const p=company.participants.find(p => p.id === (state.modal === 'editParticipant' ? state.form.participantId : state.form.pendingParticipantId));
+      if (p) Object.assign(p,{name,email,dept});
+      else { const id=uid('p'); state.form.pendingParticipantId=id; company.participants.push({id,name,email,dept,status:'정상',summary:'',nextWeekPlan:'',instructorMemo:'',tasks:[]}); }
+      if (await persist(p ? '참여자를 수정했습니다.' : '참여자를 등록했습니다.')) closeModal();
     }
 
     if (action === "add-task") {
@@ -2838,7 +2823,10 @@
       const created = [];
 
       if (Array.isArray(csvTasks) && csvTasks.length) {
-        csvTasks.forEach((row) => {
+        csvTasks.forEach((row, index) => {
+          const pendingId=state.form.pendingTaskIds?.[index];
+          const pending=participant.tasks.find(t => t.id === pendingId);
+          if (pending) { created.push(pending); return; }
           const task = ensureTaskFields({
             id: uid("t"),
             name: row.name,
@@ -2917,10 +2905,14 @@
       state.selectedTaskId = created[0].id;
       state.selectedCompanyId = company.id;
       state.selectedParticipantId = participant.id;
-      state.form.csvTasks = null;
-      state.form.draftTaskId = null;
-      await persist(created.length > 1 ? `과제 ${created.length}건을 추가했습니다.` : "과제를 추가했습니다.");
-      closeModal();
+      state.form.draftTaskId = created[0].id;
+      state.form.pendingTaskIds = created.map(t => t.id);
+      if (await persist(created.length > 1 ? `과제 ${created.length}건을 추가했습니다.` : '과제를 추가했습니다.')) {
+        state.form.csvTasks = null;
+        state.form.draftTaskId = null;
+        state.form.pendingTaskIds = null;
+        closeModal();
+      }
     }
 
     if (action === "save-task-section") {
@@ -2980,8 +2972,7 @@
       applyProjectNameToTask(task, "detail-task-");
       task.statistics = collectStatistics("detail-task-");
       task.members = collectTaskMembers();
-      await persist("과제 상세를 저장했습니다.");
-      closeModal();
+      if (await persist("과제 상세를 저장했습니다.")) closeModal();
     }
 
     if (action === "save-schedule") {
@@ -3008,8 +2999,7 @@
         return toast("같은 이메일의 PMO가 두 번 입력되었습니다.");
       }
       company.pmo = { members };
-      await persist("협력사 일정과 PMO 정보를 저장했습니다.");
-      closeModal();
+      if (await persist("협력사 일정과 PMO 정보를 저장했습니다.")) closeModal();
     }
   });
 

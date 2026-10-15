@@ -173,9 +173,10 @@ async function readData() {
 }
 
 function mapChangeError(error) {
-  const msg = String(error?.message || "");
+  const msg = String(error?.message || '');
+  if (error?.code === '42501') return new (require('./access').AccessError)();
   if (error?.code === "23505" || /23505|duplicate key/i.test(msg)) {
-    return new StoreConflictError("이미 등록된 이메일입니다. 기존 정보로 로그인해 주세요.");
+    return new StoreConflictError("이미 존재하는 항목 또는 이메일입니다. 최신 내용을 불러온 뒤 다시 시도해 주세요.");
   }
   if (error?.code === "23503" || /23503|foreign key/i.test(msg) || /missing/i.test(msg)) {
     return new StoreConflictError("다른 사용자가 이 항목을 삭제했습니다. 최신 내용을 불러온 뒤 다시 저장해 주세요.");
@@ -186,12 +187,14 @@ function mapChangeError(error) {
   return error;
 }
 
-async function applyChanges(rawChanges) {
+async function applyChanges(rawChanges, actor = null) {
   const changes = normalizeChanges(rawChanges);
   if (!countChanges(changes)) return;
   return withSupabaseRetry(async () => {
     const sb = getSupabaseAdmin();
-    const { error } = await sb.rpc("apply_dashboard_changes", { p_changes: changes });
+    const { error } = actor
+      ? await sb.rpc('apply_authorized_dashboard_changes', {p_changes:changes,p_actor:actor})
+      : await sb.rpc('apply_dashboard_changes', {p_changes:changes});
     if (error) throw mapChangeError(error);
   });
 }

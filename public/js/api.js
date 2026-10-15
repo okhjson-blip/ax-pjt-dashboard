@@ -9,8 +9,8 @@ const API = {
     const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
     if (authToken && !headers.Authorization) headers.Authorization = `Bearer ${authToken}`;
     const res = await fetch(`/api${path}`, {
-      headers,
-      ...options
+      ...options,
+      headers
     });
     let body = null;
     try {
@@ -30,6 +30,10 @@ const API = {
   health() {
     return this.request("/health");
   },
+
+  getCompanies() { return this.request('/companies', {cache:'no-store'}); },
+
+  session() { return this.request('/auth/session', {cache:'no-store'}); },
 
   getDashboard() {
     return this.request("/dashboard", { cache: "no-store" });

@@ -1,111 +1,83 @@
-const { StoreConflictError } = require("./store-changes");
+const { StoreConflictError } = require('./store-changes');
 
-class AccessError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "AccessError";
-    this.status = 403;
-  }
-}
-
-function forbid() {
-  throw new AccessError("이 항목을 수정할 권한이 없습니다.");
-}
-
+class AccessError extends Error { constructor(message = '이 항목을 수정할 권한이 없습니다.') { super(message); this.name = 'AccessError'; this.status = 403; } }
+const forbid = () => { throw new AccessError(); };
 function indexData(data) {
-  const companies = new Map();
-  const participants = new Map();
-  const tasks = new Map();
+  const companies = new Map(), participants = new Map(), tasks = new Map();
   for (const company of data?.companies || []) {
     companies.set(company.id, company);
     for (const participant of company.participants || []) {
-      participants.set(participant.id, { company, participant });
-      for (const task of participant.tasks || []) {
-        tasks.set(task.id, { company, participant, task });
-      }
+      participants.set(participant.id, {company, participant});
+      for (const task of participant.tasks || []) tasks.set(task.id, {company, participant, task});
     }
   }
-  return { companies, participants, tasks };
+  return {companies, participants, tasks};
 }
-
-function owns(actor, participantId) {
-  return Boolean(actor.participantId && actor.participantId === participantId);
-}
-
-function inCompany(actor, companyId) {
-  return actor.companyId === companyId;
-}
-
-function assertCompanyUpdate(actor, update) {
-  if (actor.role === "admin") return;
-  if (!inCompany(actor, update.id)) forbid();
-  const setKeys = Object.keys(update.sets || {});
-  if (update.pmoOps || update.memberOps || update.statOps || update.hierOps) forbid();
-  if (actor.role === "pmo") {
-    if (update.noticeOps) {
-      /* 소속 협력사 공지 */
-    }
-    if (setKeys.some((key) => key !== "participantUpdateRequest")) forbid();
-    return;
-  }
-  if (update.noticeOps) forbid();
-  if (setKeys.some((key) => key !== "participantUpdateRequest")) forbid();
-}
-
-function assertTaskParticipant(actor, participantId) {
-  if (actor.role === "admin") return;
-  if (!owns(actor, participantId)) forbid();
-}
-
-function assertCanApply(actor, changes, data) {
+const owns = (actor, id) => Boolean(actor.participantId && actor.participantId === id);
+function assertActorActive(actor, data) {
   if (!actor?.role) forbid();
-  const index = indexData(data);
-  const createdTasks = new Map((changes.tasks?.created || []).map((row) => [row.id, row]));
-
-  const participantOfTask = (taskId) => {
-    const found = index.tasks.get(taskId);
-    if (found) return found.participant.id;
-    return createdTasks.get(taskId)?.participantId || null;
-  };
-
-  if (actor.role !== "admin") {
-    if (changes.companies.created.length || changes.companies.deleted.length) forbid();
-    if (changes.participants.deleted.length) forbid();
-  }
-
-  for (const row of changes.companies.updated) assertCompanyUpdate(actor, row);
-
-  for (const row of changes.participants.created) {
-    if (actor.role !== "admin" && !inCompany(actor, row.companyId)) forbid();
-  }
-  for (const row of changes.participants.updated) {
-    if (actor.role !== "admin") forbid();
-  }
-
-  for (const row of changes.tasks.created) assertTaskParticipant(actor, row.participantId);
-  for (const row of changes.tasks.updated) {
-    const found = index.tasks.get(row.id);
-    if (!found) throw new StoreConflictError("다른 사용자가 이 항목을 삭제했습니다. 최신 내용을 불러온 뒤 다시 저장해 주세요.");
-    assertTaskParticipant(actor, found.participant.id);
-    if (row.sets?.participantId && actor.role !== "admin") forbid();
-  }
-  for (const id of changes.tasks.deleted) {
-    const found = index.tasks.get(id);
-    if (!found) throw new StoreConflictError("다른 사용자가 이 항목을 삭제했습니다. 최신 내용을 불러온 뒤 다시 저장해 주세요.");
-    assertTaskParticipant(actor, found.participant.id);
-  }
-
-  for (const row of [
-    ...changes.weeklyReports.created,
-    ...changes.weeklyReports.updated,
-    ...changes.weeklyReports.deleted
-  ]) {
-    const participantId = participantOfTask(row.taskId);
-    if (!participantId) {
-      throw new StoreConflictError("다른 사용자가 이 항목을 삭제했습니다. 최신 내용을 불러온 뒤 다시 저장해 주세요.");
-    }
-    assertTaskParticipant(actor, participantId);
-  }
+  if (actor.role === 'admin') return;
+  const company = (data.companies || []).find(c => c.id === actor.companyId);
+  if (!company) forbid();
+  if (actor.role === 'pmo') {
+    const {matchesCompanyPmo} = require('./pmo');
+    if (!matchesCompanyPmo(company, actor.name, actor.email)) forbid();
+  } else if (actor.role === 'participant') {
+    const p = company.participants.find(p => p.id === actor.participantId);
+    if (!p || String(p.email || '').toLowerCase().trim() !== String(actor.email || '').toLowerCase().trim()) forbid();
+  } else forbid();
 }
-
-module.exports = { AccessError, assertCanApply };
+function assertCompanyRead(actor, companyId, data, {report = false} = {}) {
+  assertActorActive(actor, data);
+  if (actor.role === 'admin') return;
+  if (actor.companyId !== companyId || (report && actor.role !== 'pmo')) forbid();
+}
+// A hub contains progress summaries; private report/member fields are omitted for peers.
+function scopeDashboard(actor, data) {
+  assertActorActive(actor, data);
+  if (actor.role === 'admin') return data;
+  const visibleTaskKeys = ['id','name','progress','difficulty','workStatus','startDate','endDate','reportCompleted'];
+  const companies = data.companies.filter(c => c.id === actor.companyId).map(c => ({...c, participants: c.participants.map(p => {
+    if (actor.role === 'pmo' || owns(actor,p.id)) return p;
+    return {id:p.id,name:p.name,email:p.email,dept:p.dept,status:p.status,tasks:(p.tasks || []).map(t => Object.fromEntries(visibleTaskKeys.filter(k => k in t).map(k => [k,t[k]])))};
+  })}));
+  return {companies,meta:{lastSavedAt:data.meta?.lastSavedAt || null}};
+}
+function assertCanApply(actor, changes, data) {
+  if (!['admin','pmo','participant'].includes(actor?.role)) forbid();
+  const index = indexData(data);
+  const createdTasks = new Map();
+  const duplicate = () => { throw new StoreConflictError('이미 존재하는 항목입니다. 최신 내용을 불러온 뒤 다시 저장해 주세요.'); };
+  for (const [type,map] of [['companies',index.companies],['participants',index.participants],['tasks',index.tasks]]) {
+    const ids = new Set();
+    for (const row of changes[type].created) { if (map.has(row.id) || ids.has(row.id)) duplicate(); ids.add(row.id); }
+  }
+  if (actor.role !== 'admin' && (changes.companies.created.length || changes.companies.deleted.length)) forbid();
+  for (const row of changes.companies.updated) {
+    if (actor.role === 'admin') continue;
+    if (actor.role !== 'pmo' || row.id !== actor.companyId || row.pmoOps || row.memberOps || row.statOps || row.hierOps) forbid();
+    if (Object.keys(row.sets || {}).some(k => k !== 'participantUpdateRequest')) forbid();
+  }
+  const manageParticipant = companyId => { if (actor.role !== 'admin' && (actor.role !== 'pmo' || actor.companyId !== companyId)) forbid(); };
+  for (const row of changes.participants.created) { manageParticipant(row.companyId); if (!index.companies.has(row.companyId)) forbid(); }
+  for (const row of changes.participants.updated) {
+    const found=index.participants.get(row.id); if (!found) throw new StoreConflictError('참여자가 삭제되었습니다.');
+    manageParticipant(found.company.id);
+    if (actor.role !== 'admin' && row.sets?.companyId && row.sets.companyId.value !== actor.companyId) forbid();
+  }
+  for (const id of changes.participants.deleted) { const found=index.participants.get(id); if (!found) throw new StoreConflictError('참여자가 삭제되었습니다.'); manageParticipant(found.company.id); }
+  const taskOwner = id => index.tasks.get(id)?.participant.id || createdTasks.get(id)?.participantId;
+  const manageTask = id => { if (actor.role === 'admin') return; const profile=index.participants.get(id); if (!owns(actor,id) || profile?.company.id !== actor.companyId || String(profile.participant.email || '').trim().toLowerCase() !== String(actor.email || '').trim().toLowerCase()) forbid(); };
+  for (const row of changes.tasks.created) { if (!index.participants.has(row.participantId) && !changes.participants.created.some(p => p.id === row.participantId)) forbid(); manageTask(row.participantId); createdTasks.set(row.id,row); }
+  for (const row of changes.tasks.updated) { const found=index.tasks.get(row.id); if (!found) throw new StoreConflictError('과제가 삭제되었습니다.'); manageTask(found.participant.id); if (actor.role !== 'admin' && row.sets?.participantId) forbid(); }
+  for (const id of changes.tasks.deleted) { const owner=taskOwner(id); if (!owner) throw new StoreConflictError('과제가 삭제되었습니다.'); manageTask(owner); }
+  const reportKeys = new Set();
+  for (const row of changes.weeklyReports.created) {
+    const task=index.tasks.get(row.taskId)?.task;
+    const key=row.taskId + ':' + row.weekNumber;
+    if (reportKeys.has(key) || task?.weeklyReports?.some(r => Number(r.weekNumber) === Number(row.weekNumber))) duplicate();
+    reportKeys.add(key);
+  }
+  for (const row of [...changes.weeklyReports.created,...changes.weeklyReports.updated,...changes.weeklyReports.deleted]) { const owner=taskOwner(row.taskId); if (!owner) throw new StoreConflictError('과제가 삭제되었습니다.'); manageTask(owner); }
+}
+module.exports = {AccessError,assertCanApply,scopeDashboard,assertActorActive,assertCompanyRead};

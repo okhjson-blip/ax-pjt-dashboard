@@ -61,10 +61,11 @@ async function writeData(data) {
   return writeDataSync(data);
 }
 
-async function applyChanges(rawChanges) {
+async function applyChanges(rawChanges, actor = null) {
   const changes = normalizeChanges(rawChanges);
   if (!countChanges(changes)) return;
   const data = await readData();
+  if (actor) { const {assertActorActive,assertCanApply}=require('./access'); assertActorActive(actor,data); assertCanApply(actor,changes,data); }
   applyChangesToNested(data, changes);
   writeDataSync(data);
 }

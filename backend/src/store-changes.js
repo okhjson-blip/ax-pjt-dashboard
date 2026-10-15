@@ -75,15 +75,25 @@ function assertUpdateShape(row) {
   }
 }
 
-function sameValue(left, right) {
-  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(k => [k, canonical(value[k])]));
+  return value ?? null;
 }
+function sameValue(left, right) { return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right)); }
 
+function normalizeMembers(items) {
+  return (Array.isArray(items) ? items : []).map(m => ({name:m.name || '',email:m.email || '',role:m.role === '과제 리더' ? '과제 리더' : '과제 담당자',position:m.position || m.dept || '',isOwner:Boolean(m.isOwner)}));
+}
 function applySet(target, key, spec) {
   if (!spec || typeof spec !== "object" || !Object.prototype.hasOwnProperty.call(spec, "value")) {
     throw new StoreConflictError("화면이 최신 버전이 아닙니다. 새로고침(F5) 후 다시 저장해 주세요.");
   }
-  if (!sameValue(target[key], spec.base)) throw new StoreConflictError(CONFLICT_MESSAGE);
+  const actual=target[key] ?? (key === 'workStatus' ? '개발' : key === 'difficulty' ? '중' : typeof spec.base === 'string' ? '' : null);
+  if (key === 'members') {
+    if (!Array.isArray(spec.value)) throw new StoreConflictError('참여자 목록 형식이 올바르지 않습니다.');
+    if (!sameValue(normalizeMembers(actual),normalizeMembers(spec.base))) throw new StoreConflictError(CONFLICT_MESSAGE);
+  } else if (!sameValue(actual,spec.base)) throw new StoreConflictError(CONFLICT_MESSAGE);
   target[key] = spec.value;
 }
 
@@ -123,7 +133,11 @@ function applyKeyedOps(list, ops, kind) {
 function applyKeyOps(obj, sets) {
   const next = { ...(obj || {}) };
   for (const [key, spec] of Object.entries(sets || {})) {
-    if (!sameValue(next[key], spec?.base)) throw new StoreConflictError(CONFLICT_MESSAGE);
+    const normalize = value => {
+      const text=String(value ?? '').replace(/,/g,'').trim();
+      return /^[+-]?[0-9]+([.][0-9]+)?$/.test(text) ? Number(text) : text;
+    };
+    if (!sameValue(normalize(next[key]),normalize(spec?.base))) throw new StoreConflictError(CONFLICT_MESSAGE);
     if (spec?.value == null) delete next[key];
     else next[key] = spec.value;
   }
@@ -176,8 +190,8 @@ function applyChangesToNested(data, changes) {
 
   for (const row of changes.companies.created) {
     const existing = findCompany(row.id);
-    if (existing) Object.assign(existing, row);
-    else companies.push({ ...row, participants: [] });
+    if (existing) throw new StoreConflictError("이미 존재하는 항목입니다. 새로고침 후 다시 시도해 주세요.");
+    companies.push({ ...row, participants: [] });
   }
   for (const row of changes.participants.created) {
     const company = findCompany(row.companyId);
@@ -188,8 +202,8 @@ function applyChangesToNested(data, changes) {
     if (dup) throw new StoreConflictError("이미 등록된 이메일입니다. 기존 정보로 로그인해 주세요.");
     const existing = company.participants.find((p) => p.id === row.id);
     const value = stripKeys(row, ["companyId"]);
-    if (existing) Object.assign(existing, value);
-    else company.participants.push({ ...value, tasks: [] });
+    if (findParticipant(row.id)) throw new StoreConflictError("이미 존재하는 참여자입니다.");
+    company.participants.push({ ...value, tasks: [] });
   }
   for (const row of changes.tasks.created) {
     const participant = findParticipant(row.participantId)?.p;
@@ -197,8 +211,8 @@ function applyChangesToNested(data, changes) {
     participant.tasks = participant.tasks || [];
     const existing = participant.tasks.find((t) => t.id === row.id);
     const value = stripKeys(row, ["participantId"]);
-    if (existing) Object.assign(existing, value);
-    else participant.tasks.push({ ...value, weeklyReports: [] });
+    if (findTask(row.id)) throw new StoreConflictError("이미 존재하는 과제입니다.");
+    participant.tasks.push({ ...value, weeklyReports: [] });
   }
   for (const row of changes.weeklyReports.created) {
     const task = findTask(row.taskId)?.t;
@@ -206,8 +220,8 @@ function applyChangesToNested(data, changes) {
     task.weeklyReports = task.weeklyReports || [];
     const value = { ...stripKeys(row, ["taskId"]), id: row.id || weeklyReportId(row.taskId, row.weekNumber) };
     const existing = findReport(row.taskId, row.weekNumber);
-    if (existing) Object.assign(existing, value);
-    else task.weeklyReports.push(value);
+    if (existing) throw new StoreConflictError("이미 존재하는 주간보고입니다. 최신 내용을 불러온 뒤 수정해 주세요.");
+    task.weeklyReports.push(value);
   }
 
   for (const row of changes.companies.updated) {
@@ -268,7 +282,8 @@ function applyChangesToNested(data, changes) {
       "bdwSummary",
       "bdwDetail",
       "aiFit",
-      "asIsProcessDetail"
+      "asIsProcessDetail",
+      "members"
     ]) {
       if (sets[key]) applySet(found.t, key, sets[key]);
     }

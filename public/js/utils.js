@@ -1316,6 +1316,7 @@ function memberKey(member) {
 }
 
 function diffKeyedList(prevList, nextList, keyOf) {
+  if (!changed(prevList || [], nextList || [])) return null;
   const prev = new Map((prevList || []).map((item) => [keyOf(item), item]));
   const next = new Map();
   const upsert = [];
@@ -1351,7 +1352,7 @@ function buildUpdate(type, id, prev, row) {
     companies: ["name", "schedule", "participantUpdateRequest"],
     participants: DASHBOARD_ENTITY_FIELDS.participants,
     tasks: DASHBOARD_ENTITY_FIELDS.tasks.filter(
-      (field) => !["hierarchy", "statistics", "members"].includes(field)
+      (field) => !["hierarchy", "statistics"].includes(field)
     ),
     weeklyReports: DASHBOARD_ENTITY_FIELDS.weeklyReports.filter(
       (field) => !["id", "taskId", "weekNumber"].includes(field)
@@ -1371,10 +1372,10 @@ function buildUpdate(type, id, prev, row) {
   if (type === "tasks") {
     const hierOps = diffObjectKeys(prev.hierarchy, row.hierarchy);
     const statOps = diffObjectKeys(prev.statistics, row.statistics);
-    const memberOps = diffKeyedList(prev.members, row.members, memberKey);
+    // Members are an ordered list: the same email may have several roles.
     if (hierOps) update.hierOps = hierOps;
     if (statOps) update.statOps = statOps;
-    if (memberOps) update.memberOps = memberOps;
+
   }
   const hasOps = update.noticeOps || update.pmoOps || update.hierOps || update.statOps || update.memberOps;
   if (!update.sets && !hasOps) return null;
