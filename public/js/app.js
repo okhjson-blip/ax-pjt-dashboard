@@ -2074,7 +2074,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
     const foot = published
       ? `
         <button class="btn ghost" data-action="close-modal">닫기</button>
-        <button class="btn ghost" data-action="revise-report">개정 초안</button>
+        <button class="btn ghost" data-action="revise-report">초안 수정</button>
         <button class="btn primary" data-action="reprint-report">PDF 재출력</button>
       `
       : `
@@ -2706,7 +2706,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
       state.form.reportRevising = true;
       state.form.reportDoc.status = "draft";
       render();
-      toast("개정 초안 모드입니다. 수정 후 다시 발행하세요.");
+      toast("초안 수정 모드입니다. 수정 후 다시 발행하세요.");
     }
 
     if (action === "regenerate-report-narrative") {
