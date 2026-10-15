@@ -99,6 +99,12 @@ function parseJsonContent(content) {
   return JSON.parse(text);
 }
 
+function normalizeAiNarrative(value) {
+  if (typeof value !== 'string') return '';
+  const lines=tidy(value).split(/\n/).map(line => line.trim()).filter(Boolean);
+  return lines.length >= 3 && lines.length <= 4 ? lines.join('\n') : '';
+}
+
 function geminiResponseText(data) {
   const parts = data?.candidates?.[0]?.content?.parts;
   if (!Array.isArray(parts)) return "";
@@ -122,7 +128,7 @@ async function requestAiNarratives(cfg, companyName, rows, useSchema) {
         systemInstruction: {
           parts: [
             {
-              text: "당신은 AX 컨설팅 주간보고 작성자입니다. 제공된 과제 내용만 사용하고, 없는 사실은 만들지 마세요. 한국어로 간결하게 작성하세요. 금주 요약과 차주 계획은 각각 공통 사항 및 특이점 중심의 3~4줄로 작성하세요. 각 줄은 핵심 문장 하나로 쓰고 실제 줄바꿈으로 구분하세요. JSON 객체만 반환하세요."
+              text: "당신은 AX 컨설팅 주간보고 작성자입니다. 제공된 과제 내용만 사용하고, 없는 사실은 만들지 마세요. 한국어로 간결하게 작성하세요. 금주 요약과 차주 계획은 각각 과제들의 공통 인사이트 및 특이점 중심의 3~4줄로 작성하세요. 각 줄은 핵심 문장 하나로 쓰고 실제 줄바꿈으로 구분하세요. JSON 객체만 반환하세요."
             }
           ]
         },
@@ -134,7 +140,7 @@ async function requestAiNarratives(cfg, companyName, rows, useSchema) {
                 text: JSON.stringify({
                   company: companyName || "협력사",
                   instruction:
-                    "weekSummary는 thisWeek(금주 진전)만 근거로, nextWeekPlan은 nextWeek(차주 계획)만 근거로 각각 3~4줄로 작성하세요. 과제별 내용을 나열하지 말고 여러 과제의 공통 진행 사항 또는 공통 계획을 묶어 먼저 요약한 뒤, 중요한 특이점·성과·지연·위험·우선 확인 사항 중 입력에 근거가 있는 내용만 선별하세요. 공통 사항이 확인되지 않으면 개별 핵심 사항을 요약하고, 없는 공통점이나 특이점을 만들어내지 마세요. 중복 설명, 과제명·담당자 전수 나열, 제목과 번호는 생략하세요. 각 필드 문자열은 한 줄에 핵심 문장 하나씩 실제 줄바꿈을 포함하도록 작성하고, JSON에서는 줄바꿈을 올바르게 이스케이프하세요. 입력이 비어 있으면 미작성 또는 확인 필요 사실만 명시하고 임의의 성과나 계획을 추가하지 마세요.",
+                    "weekSummary는 thisWeek(금주 진전)만 근거로, nextWeekPlan은 nextWeek(차주 계획)만 근거로 각각 3~4줄로 작성하세요. 과제별 내용을 한 줄씩 나열하지 마세요. 앞 1~2줄에는 여러 과제에서 공통으로 드러나는 진행 흐름·성과·병목 또는 계획의 우선순위를 공통 인사이트로 묶으세요. 나머지 1~2줄에는 영향이 큰 특이점·성과·지연·위험·우선 확인 사항 중 입력에 근거가 있는 내용만 선별하세요. 과제명은 특이점을 식별하는 데 꼭 필요한 경우에만 적고, 모든 과제를 빠짐없이 언급하려 하지 마세요. 공통 사항이 확인되지 않으면 개별 핵심 사항을 요약하고, 없는 공통점이나 특이점을 만들어내지 마세요. 중복 설명, 과제명·담당자 전수 나열, 제목과 번호는 생략하세요. 각 필드 문자열은 한 줄에 핵심 문장 하나씩 실제 줄바꿈을 포함하도록 작성하고, JSON에서는 줄바꿈을 올바르게 이스케이프하세요. 입력이 비어 있으면 미작성 또는 확인 필요 사실만 명시하고 임의의 성과나 계획을 추가하지 마세요.",
                   tasks: narrativePayload(rows)
                 })
               }
@@ -161,14 +167,13 @@ async function requestAiNarratives(cfg, companyName, rows, useSchema) {
     }
   );
   if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    console.warn(`Gemini narrative draft failed: ${response.status} ${detail.slice(0, 300)}`);
+    console.warn(`Gemini narrative draft failed: HTTP ${response.status}`);
     return null;
   }
   const data = await response.json();
   const parsed = parseJsonContent(geminiResponseText(data));
-  const weekSummary = tidy(parsed.weekSummary);
-  const nextWeekPlan = tidy(parsed.nextWeekPlan);
+  const weekSummary = normalizeAiNarrative(parsed.weekSummary);
+  const nextWeekPlan = normalizeAiNarrative(parsed.nextWeekPlan);
   if (!weekSummary || !nextWeekPlan) return null;
   return { weekSummary, nextWeekPlan, source: "ai" };
 }
@@ -176,15 +181,15 @@ async function requestAiNarratives(cfg, companyName, rows, useSchema) {
 async function tryAiNarratives(companyName, rows) {
   const cfg = aiConfig();
   if (!cfg) return null;
-  try {
-    return (
-      (await requestAiNarratives(cfg, companyName, rows, true)) ||
-      (await requestAiNarratives(cfg, companyName, rows, false))
-    );
-  } catch (err) {
-    console.warn(`Gemini narrative draft failed: ${err?.message || err}`);
-    return null;
+  for (const useSchema of [true,false]) {
+    try {
+      const result=await requestAiNarratives(cfg,companyName,rows,useSchema);
+      if (result) return result;
+    } catch (err) {
+      console.warn('Gemini narrative draft failed: '+(err?.name || 'Error'));
+    }
   }
+  return null;
 }
 
 async function draftNarratives(companyName, rows) {

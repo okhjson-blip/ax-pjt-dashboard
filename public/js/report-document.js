@@ -19,7 +19,7 @@ function reportOpsView(doc) {
     taskCount: Number(ops.taskCount || 0),
     participantCount: Number(ops.participantCount || 0),
     progress: Number(ops.progress || 0),
-    scheduleGoalRate: Number.isFinite(goal) ? Math.round(goal) : 0
+    scheduleGoalRate: Number.isFinite(goal) ? Math.min(100, Math.max(0, Math.round(goal))) : 0
   };
 }
 
@@ -46,8 +46,9 @@ function reportNarrativeHint(doc, kind) {
   const source = doc?.body?.narrativeSource;
   const target = kind === "next" ? "차주 계획" : "금주 진전";
   if (source === "ai") {
-    return `AI가 각 과제의 ${target}을 참고해 작성한 초안입니다. 내용을 수정할 수 있습니다.`;
+    return `AI가 각 과제의 ${target}에서 공통 인사이트와 특이점을 추려 3~4줄로 작성한 초안입니다. 내용을 수정할 수 있습니다.`;
   }
+  if (source === 'compiled') return 'AI 요약이 적용되지 않은 기본 초안입니다. AI 초안 다시 작성으로 요약을 다시 요청할 수 있습니다.';
   return `각 과제의 ${target}을 참고해 작성한 초안입니다. 내용을 수정할 수 있습니다.`;
 }
 

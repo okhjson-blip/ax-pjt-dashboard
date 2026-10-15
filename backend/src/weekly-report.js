@@ -61,13 +61,6 @@ function elapsedRateFromDates(startDate, endDate, now = new Date()) {
   return Math.round((elapsed / total) * 100);
 }
 
-function difficultyWeight(value) {
-  const raw = String(value || "중").trim();
-  if (raw === "상") return 3;
-  if (raw === "하") return 1;
-  return 2;
-}
-
 function metricReferenceDate(company, weekNumber, now) {
   const range = consultingWeekRange(company?.schedule?.startDate, weekNumber);
   const end = new Date(`${range.periodEnd}T12:00:00+09:00`);
@@ -82,24 +75,14 @@ function taskExpectedAt(task, company, now) {
 }
 
 function participantProgressAt(participant, weekNumber, currentWeek) {
-  const tasks = participant?.tasks || [];
+  const tasks=participant?.tasks || [];
   if (!tasks.length) return 0;
-  let weightSum = 0;
-  let progressSum = 0;
-  tasks.forEach((task) => {
-    const view = reportForWeek(task, weekNumber, currentWeek);
-    const progress = view ? Number(view.progress || 0) : 0;
-    const w = difficultyWeight(task.difficulty);
-    weightSum += w;
-    progressSum += progress * w;
-  });
-  return weightSum ? Math.round(progressSum / weightSum) : 0;
+  return Math.round(tasks.reduce((sum,t) => sum + Number(reportForWeek(t,weekNumber,currentWeek)?.progress || 0),0) / tasks.length);
 }
 
 function scheduleAchievementAt(participant, company, weekNumber, currentWeek, now) {
   const tasks = participant?.tasks || [];
   if (!tasks.length) return null;
-  let weightSum = 0;
   let ratioSum = 0;
   let measurable = 0;
   let beforeStart = 0;
@@ -112,12 +95,10 @@ function scheduleAchievementAt(participant, company, weekNumber, currentWeek, no
     }
     const view = reportForWeek(task, weekNumber, currentWeek);
     const progress = view ? Number(view.progress || 0) : 0;
-    const w = difficultyWeight(task.difficulty);
-    weightSum += w;
-    ratioSum += (progress / expected) * w;
+    ratioSum += Math.min(1, Math.max(0, Number.isFinite(progress) ? progress / expected : 0));
     measurable += 1;
   });
-  if (measurable && weightSum) return Math.round((ratioSum / weightSum) * 100);
+  if (measurable) return Math.round((ratioSum / measurable) * 100);
   if (beforeStart && beforeStart === tasks.length) return 100;
   return null;
 }
@@ -129,20 +110,14 @@ function companyOpsSummary(company, weekNumber, now = new Date()) {
   const participants = company?.participants || [];
   const taskCount = participants.reduce((sum, participant) => sum + (participant.tasks || []).length, 0);
   const participantCount = participants.length;
-  const progress = participantCount
-    ? Math.round(
-        participants.reduce((sum, participant) => sum + participantProgressAt(participant, week, currentWeek), 0) /
-          participantCount
-      )
-    : 0;
-  const rates = participants
-    .map((participant) => scheduleAchievementAt(participant, company, week, currentWeek, ref))
-    .filter((value) => value !== null);
+  const allTasks={tasks:participants.flatMap(p => p.tasks || [])};
+  const progress=participantProgressAt(allTasks,week,currentWeek);
+  const scheduleGoalRate=scheduleAchievementAt(allTasks,company,week,currentWeek,ref);
   return {
     taskCount,
     participantCount,
     progress,
-    scheduleGoalRate: rates.length ? Math.round(rates.reduce((sum, value) => sum + value, 0) / rates.length) : null
+    scheduleGoalRate
   };
 }
 
@@ -397,7 +372,7 @@ function normalizeOps(ops) {
     taskCount: Math.max(0, Math.round(taskCount)),
     participantCount: Math.max(0, Math.round(participantCount)),
     progress: clampProgress(progress),
-    scheduleGoalRate: Number.isFinite(rate) ? Math.round(rate) : null
+    scheduleGoalRate: Number.isFinite(rate) ? clampProgress(rate) : null
   };
 }
 

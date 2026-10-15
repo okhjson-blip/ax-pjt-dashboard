@@ -6,8 +6,6 @@ function today() {
   return new Date();
 }
 
-const DIFFICULTY_WEIGHT = { 상: 3, 중: 2, 하: 1 };
-
 function normalizeDifficulty(value) {
   const raw = String(value || "중").trim().toLowerCase();
   if (raw === "상" || raw === "high" || raw === "h") return "상";
@@ -31,10 +29,6 @@ function workStatusSelectHtml(id, selected = "개발", disabled = false) {
       ${WORK_STATUSES.map((item) => `<option value="${item}" ${value === item ? "selected" : ""}>${item}</option>`).join("")}
     </select>
   `;
-}
-
-function difficultyWeight(value) {
-  return DIFFICULTY_WEIGHT[normalizeDifficulty(value)] || 2;
 }
 
 /** 시작~종료일 경과율(0~100). 유효하지 않으면 null */
@@ -61,48 +55,27 @@ function taskExpectedProgress(task, company) {
   return companyElapsedRate(company);
 }
 
-/** 전체 진척도: 난이도(상3/중2/하1) 가중 평균 */
+/** 전체 진척도: 과제별 진척도의 단순 평균 */
 function avgProgress(participant) {
-  const tasks = participant?.tasks || [];
+  const tasks=participant?.tasks || [];
   if (!tasks.length) return 0;
-  let weightSum = 0;
-  let progressSum = 0;
-  tasks.forEach((task) => {
-    const t = ensureTaskFields(task);
-    const w = difficultyWeight(t.difficulty);
-    weightSum += w;
-    progressSum += Number(t.progress || 0) * w;
-  });
-  return weightSum ? Math.round(progressSum / weightSum) : 0;
+  return Math.round(tasks.reduce((sum,t) => sum + Number(ensureTaskFields(t).progress || 0),0) / tasks.length);
 }
 
-/** 기대 진척 평균(난이도 가중). 계산 불가 시 null */
+/** 기대 진척도의 단순 평균. 계산 불가 과제는 제외. */
 function expectedProgressAvg(participant, company) {
-  const tasks = participant?.tasks || [];
-  if (!tasks.length) return null;
-  let weightSum = 0;
-  let expectedSum = 0;
-  let hasValue = false;
-  tasks.forEach((task) => {
-    const expected = taskExpectedProgress(task, company);
-    if (expected === null) return;
-    hasValue = true;
-    const w = difficultyWeight(ensureTaskFields(task).difficulty);
-    weightSum += w;
-    expectedSum += expected * w;
-  });
-  if (!hasValue || !weightSum) return null;
-  return Math.round(expectedSum / weightSum);
+  const values=(participant?.tasks || []).map(t => taskExpectedProgress(t,company)).filter(v => v !== null);
+  return values.length ? Math.round(values.reduce((sum,v) => sum+v,0) / values.length) : null;
 }
 
 /**
- * 일정 달성율: 과제별 (progress ÷ 기대) 난이도 가중 평균 × 100.
+ * 일정 달성율: 과제별 min(실적 ÷ 기대, 1)의 단순 평균 × 100.
+ * 목표 초과 실적은 100%로 제한하여 지연 과제를 상쇄하지 않는다.
  * 기대=0(시작 전) 과제는 제외. 전부 시작 전이면 100.
  */
 function scheduleAchievementRate(participant, company) {
   const tasks = participant?.tasks || [];
   if (!tasks.length) return null;
-  let weightSum = 0;
   let ratioSum = 0;
   let measurable = 0;
   let beforeStart = 0;
@@ -115,13 +88,11 @@ function scheduleAchievementRate(participant, company) {
       return;
     }
     const progress = Number(ensureTaskFields(task).progress || 0);
-    const w = difficultyWeight(ensureTaskFields(task).difficulty);
-    weightSum += w;
-    ratioSum += (progress / expected) * w;
+    ratioSum += Math.min(1, Math.max(0, Number.isFinite(progress) ? progress / expected : 0));
     measurable += 1;
   });
 
-  if (measurable && weightSum) return Math.round((ratioSum / weightSum) * 100);
+  if (measurable) return Math.round((ratioSum / measurable) * 100);
   if (beforeStart && beforeStart === tasks.length) return 100;
   return null;
 }
@@ -217,38 +188,20 @@ function stalledParticipants(company) {
 }
 
 function companyAvg(company) {
-  if (!company.participants.length) return 0;
-  return Math.round(
-    company.participants.reduce((sum, p) => sum + avgProgress(p), 0) / company.participants.length
-  );
+  return avgProgress({tasks:(company?.participants || []).flatMap(p => p.tasks || [])});
 }
 
-/**
- * 참여자 목표 달성율: 전체 진척도(실적) ÷ 협력사 일정 경과율(목표) × 100
- */
+/** 참여자 목표 달성율: 과제별 일정 목표 달성율의 단순 평균 */
 function targetAchievementRate(company, participant) {
-  if (!participant?.tasks?.length) return null;
-  const goal = companyElapsedRate(company);
-  if (goal === null) return null;
-  const actual = avgProgress(participant);
-  if (goal === 0) return actual > 0 ? Math.max(100, actual) : 100;
-  return Math.round((actual / goal) * 100);
+  return scheduleAchievementRate(participant,company);
 }
 
 function companyAchievementAvg(company) {
-  const rates = (company?.participants || [])
-    .map((p) => scheduleAchievementRate(p, company))
-    .filter((v) => v !== null);
-  if (!rates.length) return null;
-  return Math.round(rates.reduce((sum, v) => sum + v, 0) / rates.length);
+  return scheduleAchievementRate({tasks:(company?.participants || []).flatMap(p => p.tasks || [])},company);
 }
 
 function companyTargetAchievementAvg(company) {
-  const rates = (company?.participants || [])
-    .map((p) => targetAchievementRate(company, p))
-    .filter((v) => v !== null);
-  if (!rates.length) return null;
-  return Math.round(rates.reduce((sum, v) => sum + v, 0) / rates.length);
+  return companyAchievementAvg(company);
 }
 
 function progressClass(value) {

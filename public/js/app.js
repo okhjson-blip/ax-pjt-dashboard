@@ -1253,9 +1253,9 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
     const lock = disabled ? "disabled class='readonly difficulty-select'" : "class='difficulty-select'";
     return `
       <select id="${id}" ${lock}>
-        <option value="상" ${value === "상" ? "selected" : ""}>상 (가중 3)</option>
-        <option value="중" ${value === "중" ? "selected" : ""}>중 (가중 2)</option>
-        <option value="하" ${value === "하" ? "selected" : ""}>하 (가중 1)</option>
+        <option value="상" ${value === "상" ? "selected" : ""}>상</option>
+        <option value="중" ${value === "중" ? "selected" : ""}>중</option>
+        <option value="하" ${value === "하" ? "selected" : ""}>하</option>
       </select>
     `;
   }
@@ -2729,7 +2729,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
         toast(
           result.narrativeSource === "ai"
             ? "AI 초안을 다시 작성했습니다. 내용을 수정할 수 있습니다."
-            : "각 과제의 금주 진전·차주 계획으로 초안을 다시 작성했습니다. 내용을 수정할 수 있습니다."
+            : "AI 요약을 생성하지 못해 과제별 기본 초안을 표시했습니다."
         );
       } catch (err) {
         toast(err.message || "초안 작성에 실패했습니다.");
