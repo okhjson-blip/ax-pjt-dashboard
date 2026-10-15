@@ -19,7 +19,6 @@ const { draftNarratives } = require("./report-draft");
 const { matchesCompanyPmo } = require("./pmo");
 const { signSession, actorFromRequest } = require("./session");
 const { assertCanApply, assertActorActive, assertCompanyRead, scopeDashboard } = require("./access");
-const crypto = require("crypto");
 const { normalizeChanges } = require("./store-changes");
 
 async function applyNarrativeDraft(report, company, { onlyBlank = false } = {}) {
@@ -79,19 +78,9 @@ function requireAdmin(req, res) {
   return actor;
 }
 
-async function ensurePmoParticipant(company, name, email) {
-  const key = String(email).trim().toLowerCase();
-  const existing = company.participants.find(p => String(p.email || '').trim().toLowerCase() === key);
-  if (existing) return existing;
-  const participant = {id:'pmo-' + crypto.createHash('sha256').update(company.id + ':' + key).digest('hex').slice(0,24),companyId:company.id,name,email:key,dept:'PMO',status:'정상',summary:'',nextWeekPlan:'',instructorMemo:'',registeredAt:new Date().toISOString()};
-  try { await applyChanges({participants:{created:[participant]}}); }
-  catch (err) {
-    const latest = await readData();
-    const linked = latest.companies.find(c => c.id === company.id)?.participants.find(p => String(p.email || '').toLowerCase() === key);
-    if (linked) return linked;
-    throw err;
-  }
-  return participant;
+function findPmoParticipant(company, email) {
+  const key=String(email || '').trim().toLowerCase();
+  return company.participants.find(p => String(p.email || '').trim().toLowerCase() === key) || null;
 }
 
 function createRouter() {
@@ -116,7 +105,7 @@ function createRouter() {
       const actor={...req.actor};
       if (actor.role === 'pmo') {
         const company=req.dashboard.companies.find(c => c.id === actor.companyId);
-        actor.participantId=(await ensurePmoParticipant(company,actor.name,actor.email)).id;
+        actor.participantId=findPmoParticipant(company,actor.email)?.id || null;
       }
       res.json(withToken(actor));
     } catch(err) {next(err);}
@@ -208,14 +197,14 @@ function createRouter() {
       const participant = byEmail && nameKey(byEmail.name) === nameKey(name) ? byEmail : null;
 
       if (matchesCompanyPmo(company, name, email)) {
-        const linked = await ensurePmoParticipant(company, name, email);
+        const linked = findPmoParticipant(company, email);
         return res.json(
           withToken({
             role: "pmo",
             name,
             email,
             companyId: company.id,
-            participantId: linked.id
+            participantId: linked?.id || null
           })
         );
       }

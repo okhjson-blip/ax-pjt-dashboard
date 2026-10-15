@@ -295,7 +295,7 @@
       if (seq === saveSeq) {
         if (saved.session) { state.auth=saved.session; API.setToken(state.auth.token); saveSession(); }
         applyDashboardData(saved);
-        if (isPmo() && !currentCompany()?.participants.some(p => p.id === state.auth.participantId)) {
+        if (isPmo() && (state.auth.participantId || null) !== (currentCompany()?.participants.find(p => String(p.email || '').trim().toLowerCase() === String(state.auth.email || '').trim().toLowerCase())?.id || null)) {
           state.auth=await API.session(); API.setToken(state.auth.token); await reloadDashboardData();
         }
       }
@@ -324,7 +324,8 @@
       return;
     }
     if (view === 'personal') {
-      if (!isAdmin() && state.auth?.participantId) state.selectedParticipantId = state.auth.participantId;
+      const own=currentCompany()?.participants.find(p => p.id === state.auth?.participantId);
+      if (!isAdmin() && state.auth?.participantId && (!isPmo() || own?.tasks?.length)) state.selectedParticipantId = state.auth.participantId;
       lockToOwnParticipant();
     }
     state.view = view;
@@ -932,8 +933,13 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
     `;
   }
 
+  function personalParticipants(company) {
+    const pmoEmails=new Set(pmoMembersOf(company).map(p => String(p.email || '').trim().toLowerCase()).filter(Boolean));
+    return (company.participants || []).filter(p => !pmoEmails.has(String(p.email || '').trim().toLowerCase()) || p.tasks?.length);
+  }
+
   function renderAdminParticipantOverview(company, { canDelete = true } = {}) {
-    const rows = (company.participants || []).filter(p => canBrowseCompany(company) || isMine(p));
+    const rows = personalParticipants(company).filter(p => canBrowseCompany(company) || isMine(p));
     return `
       <div class="card card-pad">
         <div class="section-title">
@@ -980,21 +986,22 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
     const company = currentCompany();
     if (!company) return '<div class="empty">선택된 협력사가 없습니다.</div>';
     const browseCompany = canBrowseCompany(company);
-    if (!company.participants.length) {
+    const visibleParticipants=personalParticipants(company);
+    if (!visibleParticipants.length) {
       return `
         ${renderAdminParticipantOverview(company, { canDelete: canManageHubParticipants(company) })}
-        <div class="empty">선택된 참여자가 없습니다. 협력사 허브에서 참여자를 선택하세요.</div>
+        <div class="empty">조회할 참여자가 없습니다. PMO는 참여자 등록 없이 소속 협력사 허브와 참여자 대시보드를 조회할 수 있습니다.</div>
       `;
     }
-    if (!company.participants.some((p) => p.id === state.selectedParticipantId)) {
+    if (!visibleParticipants.some((p) => p.id === state.selectedParticipantId)) {
       if (browseCompany) {
-        state.selectedParticipantId = company.participants[0].id;
+        state.selectedParticipantId = visibleParticipants[0].id;
       } else {
         lockToOwnParticipant();
       }
     }
     const participant = currentParticipant();
-    if (!participant) return '<div class="empty">선택된 참여자가 없습니다. 협력사 허브에서 참여자를 선택하세요.</div>';
+    if (!participant) return '<div class="empty">조회할 참여자가 없습니다. PMO는 참여자 등록 없이 소속 협력사 허브와 참여자 대시보드를 조회할 수 있습니다.</div>';
     if (!canViewParticipant(participant)) {
       return '<div class="empty">본인 과제만 열람할 수 있습니다.</div>';
     }
@@ -1120,20 +1127,12 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
 
         <aside class="grid">
           <div class="card card-pad">
-            <div class="section-title">
-              <div>
+            <div class="section-title weekly-report-header">
+              <div class="weekly-report-heading">
                 <h3>주간 보고 · ${week}주차</h3>
-                <p>${
-                  viewingCurrent
-                    ? "과제를 선택한 뒤 금주 진전, 진행 상세, 이슈, 차주 계획을 작성합니다."
-                    : "선택한 주차에 저장된 스냅샷을 조회합니다."
-                }</p>
+                ${canEditReport ? '<div class="weekly-report-actions"><button class="btn primary small" data-action="save-personal">저장</button><button class="btn ghost small danger" data-action="delete-personal-report">삭제</button></div>' : ""}
               </div>
-              ${
-                canEditReport
-                  ? '<div><button class="btn primary small" data-action="save-personal">보고 저장</button> <button class="btn ghost small danger" data-action="delete-personal-report">보고 삭제</button></div>'
-                  : ""
-              }
+              <p>${viewingCurrent ? "과제를 선택한 뒤 금주 진전, 진행 상세, 이슈, 차주 계획을 작성합니다." : "선택한 주차에 저장된 스냅샷을 조회합니다."}</p>
             </div>
             ${
               participant.tasks.length

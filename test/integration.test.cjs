@@ -72,7 +72,7 @@ function uiAudit(data){
     window:{alert:()=>{},confirm:()=>true},document:{getElementById:id=>elements[id]||=( {innerHTML:'',addEventListener:()=>{}}),addEventListener:(name,fn)=>listeners[name]=fn,querySelector:()=>null,querySelectorAll:()=>[]}});
   vm.runInContext(fs.readFileSync(path.join(root,'public/js/utils.js'),'utf8'),ctx);
   const src=fs.readFileSync(path.join(root,'public/js/app.js'),'utf8').replace(/  bootstrap\(\);\s*\}\)\(\);\s*$/,
-    'globalThis.audit={state,applyDashboardData,renderTopActions,renderPersonalDashboard,renderTaskDetailModal,renderCompanyHub,canViewParticipant,canManageParticipant,canManageNotices,lockToOwnParticipant};})();');
+    'globalThis.audit={state,applyDashboardData,renderTopActions,renderPersonalDashboard,renderTaskDetailModal,renderCompanyHub,renderAdminParticipantOverview,canViewParticipant,canManageParticipant,canManageNotices,lockToOwnParticipant};})();');
   vm.runInContext(src,ctx);
   const a=ctx.audit;
   const out=[];
@@ -90,6 +90,7 @@ function uiAudit(data){
   }
   a.state.auth={role:'pmo',companyId:'c1',participantId:'p1'};a.state.selectedParticipantId='p2';a.lockToOwnParticipant();
   out.push({name:'pmo_personal_navigation',selectedParticipantAfterLock:a.state.selectedParticipantId,expected:'p1'});
+  a.state.companies[0].participants=a.state.companies[0].participants.filter(p=>p.id==='p1');a.state.companies[0].participants[0].tasks=[];a.state.selectedParticipantId=null;assert(a.renderPersonalDashboard().includes('조회할 참여자가 없습니다.'));
   return out;
 }
 (async()=>{
@@ -162,7 +163,9 @@ function uiAudit(data){
     const r=await patch('participant',taskUpdate('t2','weeklySummary','Original','Edited'));
     return {...r,...(r.body.companies?.some(c=>c.id==='c2')?{policyViolation:'Write response returns other company and personal report data'}:{}),evidence:{returnedCompanies:r.body.companies?.map(c=>c.id)}};
   });
-  await check('pmo_without_participant_gets_own_profile_on_login',200,async()=>{const r=await api('/auth/participant',null,'POST',{companyId:'c1',name:'PMO Only',email:'pmo@example.com'});assert(r.body.participantId);const found=(await db.query('select id from participants where email=$1',['pmo@example.com'])).rows;assert.equal(found.length,1);return r;});
+  await check('pmo_login_does_not_create_participant',200,async()=>{const r=await api('/auth/participant',null,'POST',{companyId:'c1',name:'PMO Only',email:'pmo@example.com'});assert.equal(r.body.participantId,null);assert.equal((await db.query("select id from participants where email='pmo@example.com'")).rows.length,0);return r;});
+  await check('pmo_session_and_dashboard_without_participant',200,async()=>{const session=await api('/auth/session','pmoOnly');assert.equal(session.status,200);assert.equal(session.body.participantId,null);const r=await api('/dashboard','pmoOnly');assert.equal(r.body.companies.length,1);assert.equal(r.body.companies[0].participants.length,2);assert.equal((await db.query("select id from participants where email='pmo@example.com'")).rows.length,0);return r;});
+  await check('pmo_without_participant_can_manage_hub',200,()=>patch('pmoOnly',{companies:{updated:[{id:'c1',noticeOps:{upsert:[{base:null,value:{id:'n-pmo',title:'PMO notice'}}]}}]}}));
   await check('guest_company_report_read_blocked',401,()=>api('/companies/c2/weekly-reports/1',null));
   await check('participant_other_company_report_read_blocked',403,()=>api('/companies/c2/weekly-reports/1','participant'));
   await check('pmo_other_company_report_read_blocked',403,()=>api('/companies/c2/weekly-reports/1','pmo'));

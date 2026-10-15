@@ -1757,3 +1757,9 @@ select.difficulty-select.readonly {
     text-align: left;
   }
 }
+
+/* Keep weekly report actions aligned with the heading. */
+.section-title.weekly-report-header { display: block; }
+.weekly-report-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.weekly-report-heading h3 { min-width: 0; }
+.weekly-report-actions { display: flex; flex: 0 0 auto; gap: 6px; }
