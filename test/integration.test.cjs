@@ -86,7 +86,7 @@ function uiAudit(data){
     a.applyDashboardData(structuredClone(data));Object.assign(a.state,{auth,view:'personal',selectedCompanyId:'c1',selectedParticipantId:pid,selectedTaskId:pid==='p1'?'t1':'t2',selectedWeek:null,form:{taskId:pid==='p1'?'t1':'t2'}});
     const personal=a.renderPersonalDashboard();const detail=a.renderTaskDetailModal();
     a.state.view='company';const hub=a.renderTopActions()+a.renderCompanyHub();
-    out.push({name,requestedParticipant:pid,renderedParticipant:a.state.selectedParticipantId,reportSave:personal.includes('data-action="save-personal"'),reportSummaryReadonly:/id="weekly-summary"[^>]*readonly/.test(personal),taskSave:detail.includes('data-action="save-task-detail"'),taskDelete:personal.includes('data-action="delete-task"'),personalBlocked:personal.includes('본인 과제만 열람할 수 있습니다.'),hubAddParticipant:hub.includes('data-action="open-add-participant"'),hubNoticeCreate:hub.includes('data-action="open-add-notice"'),hubScheduleEdit:hub.includes('data-action="open-schedule"'),hubParticipantDelete:hub.includes('data-action="delete-participant"')});
+    out.push({name,requestedParticipant:pid,renderedParticipant:a.state.selectedParticipantId,reportSave:personal.includes('data-action="save-personal"'),reportSummaryReadonly:/id="weekly-summary"[^>]*readonly/.test(personal),taskSave:detail.includes('data-action="save-task-detail"'),taskDelete:personal.includes('data-action="delete-task"'),personalOverview:personal.includes('참여자 전체 현황'),personalOwnEdit:personal.includes('data-action="edit-participant" data-company="c1" data-participant="p2"'),personalPeerListed:personal.includes('data-action="select-person" data-company="c1" data-participant="p1"'),personalDelete:personal.includes('data-action="delete-participant"'),hubOverview:hub.includes('참여자 전체 현황'),personalBlocked:personal.includes('본인 과제만 열람할 수 있습니다.'),hubAddParticipant:hub.includes('data-action="open-add-participant"'),hubNoticeCreate:hub.includes('data-action="open-add-notice"'),hubScheduleEdit:hub.includes('data-action="open-schedule"'),hubParticipantDelete:hub.includes('data-action="delete-participant"')});
   }
   a.state.auth={role:'pmo',companyId:'c1',participantId:'p1'};a.state.selectedParticipantId='p2';a.lockToOwnParticipant();
   out.push({name:'pmo_personal_navigation',selectedParticipantAfterLock:a.state.selectedParticipantId,expected:'p1'});
@@ -136,7 +136,7 @@ function uiAudit(data){
     await check(`${actor}_hub_notice_edit`,allowHub?200:403,()=>patch(actor,{companies:{updated:[{id:'c1',noticeOps:{upsert:[{base:{id:'n1',title:'Original',content:'Original'},value:{id:'n1',title:'Edited',content:'Original'}}]}}]}}));
     await check(`${actor}_hub_notice_delete`,allowHub?200:403,()=>patch(actor,{companies:{updated:[{id:'c1',noticeOps:{delete:[{id:'n1',base:{id:'n1',title:'Original',content:'Original'}}]}}]}}));
     await check(`${actor}_hub_participant_create`,allowHub?200:403,()=>patch(actor,{participants:{created:[{id:'p-new',companyId:'c1',name:'New',email:'new@example.com'}]}}));
-    await check(`${actor}_hub_participant_update`,allowHub?200:403,()=>patch(actor,{participants:{updated:[{id:'p2',sets:{dept:{base:'',value:'Updated'}}}]}}));
+    await check(`${actor}_hub_participant_update`,200,()=>patch(actor,{participants:{updated:[{id:'p2',sets:{dept:{base:'',value:'Updated'}}}]}}));
     await check(`${actor}_hub_participant_delete`,allowHub?200:403,()=>patch(actor,{participants:{deleted:['p2']}}));
     await check(`${actor}_company_delete`,actor==='admin'?200:403,()=>patch(actor,{companies:{deleted:['c1']}}));
   }
@@ -153,6 +153,11 @@ function uiAudit(data){
       return {...r,evidence:(await db.query("select id,company_id,name from participants where id='p3'")).rows[0]};
     });
   }
+  await check('participant_only_own_profile_returned',200,async()=>{const r=await api('/dashboard','participant');assert.deepEqual(r.body.companies[0].participants.map(p=>p.id),['p2']);return r;});
+  await check('participant_other_profile_edit_blocked',403,()=>patch('participant',{participants:{updated:[{id:'p1',sets:{dept:{base:'',value:'No'}}}]}}));
+  await check('participant_own_company_move_blocked',403,()=>patch('participant',{participants:{updated:[{id:'p2',sets:{companyId:{base:'c1',value:'c2'}}}]}}));
+  await check('participant_own_admin_field_blocked',403,()=>patch('participant',{participants:{updated:[{id:'p2',sets:{instructorMemo:{base:'',value:'No'}}}]}}));
+  await check('participant_own_identity_edit_refreshes_session',200,async()=>{const r=await patch('participant',{participants:{updated:[{id:'p2',sets:{name:{base:'Bob',value:'Robert'},email:{base:'bob@example.com',value:'robert@example.com'}}}]}});assert.equal(r.status,200);assert.equal(r.body.session.email,'robert@example.com');const old=tokens.participant;tokens.participant=r.body.session.token;try{assert.equal((await api('/dashboard','participant')).status,200);}finally{tokens.participant=old;}return r;});
   await check('participant_successful_write_response_scope',200,async()=>{
     const r=await patch('participant',taskUpdate('t2','weeklySummary','Original','Edited'));
     return {...r,...(r.body.companies?.some(c=>c.id==='c2')?{policyViolation:'Write response returns other company and personal report data'}:{}),evidence:{returnedCompanies:r.body.companies?.map(c=>c.id)}};
@@ -177,6 +182,9 @@ function uiAudit(data){
   assert.equal(ui.find(r=>r.name==='admin_other').reportSummaryReadonly,false);
   assert.equal(ui.find(r=>r.name==='pmo_colleague').taskSave,false);
   assert.equal(ui.find(r=>r.name==='participant_own').hubAddParticipant,false);
+  for(const r of ui.filter(r=>r.name!=='pmo_personal_navigation'))assert.equal(r.hubOverview,false,r.name+' hub overview');
+  const ownUi=ui.find(r=>r.name==='participant_own');assert.equal(ownUi.personalOverview,true);assert.equal(ownUi.personalOwnEdit,true);assert.equal(ownUi.personalPeerListed,false);assert.equal(ownUi.personalDelete,false);
+  assert.equal(ui.find(r=>r.name==='pmo_colleague').personalPeerListed,true);
   console.log(JSON.stringify(results.summary));
   console.log('Policy mismatches:');for(const r of rows.filter(r=>r.pass===false))console.log(JSON.stringify(r));
   assert(dbChecks.find(r=>r.role==='anon').rpcWrite.allowed===false);

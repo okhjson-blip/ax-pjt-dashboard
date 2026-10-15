@@ -170,10 +170,14 @@ function createRouter() {
       assertCanApply(actor, normalized, current);
       await applyChanges(normalized, actor);
       await updateMeta({ lastSavedAt: new Date().toISOString() });
-      res.json(scopeDashboard(req.actor, await readData()));
-    } catch (err) {
-      next(err);
-    }
+      const latest=await readData();
+      if (actor.role === 'participant' && normalized.participants.updated.some(p => p.id === actor.participantId)) {
+        const profile=latest.companies.find(c => c.id === actor.companyId)?.participants.find(p => p.id === actor.participantId);
+        const refreshed={...actor,name:profile.name,email:profile.email};
+        return res.json({...scopeDashboard(refreshed,latest),session:withToken(refreshed)});
+      }
+      res.json(scopeDashboard(actor,latest));
+    } catch (err) { next(err); }
   });
 
   router.post("/auth/admin", (req, res) => {

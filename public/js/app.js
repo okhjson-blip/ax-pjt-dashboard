@@ -249,6 +249,10 @@
 
   function canManageHubParticipants(company = currentCompany()) { return isAdmin() || (isPmo() && company?.id === state.auth?.companyId); }
 
+  function canEditParticipantProfile(company, participant) {
+    return Boolean(company && participant && (canManageHubParticipants(company) || (state.auth?.role === 'participant' && company.id === state.auth.companyId && isMine(participant))));
+  }
+
   function canManageNotices(company) {
     if (!company) return false;
     return isAdmin() || (isPmo() && company.id === state.auth?.companyId);
@@ -289,6 +293,7 @@
       state.saving = true;
       const saved = await API.saveDashboardChanges(changes);
       if (seq === saveSeq) {
+        if (saved.session) { state.auth=saved.session; API.setToken(state.auth.token); saveSession(); }
         applyDashboardData(saved);
         if (isPmo() && !currentCompany()?.participants.some(p => p.id === state.auth.participantId)) {
           state.auth=await API.session(); API.setToken(state.auth.token); await reloadDashboardData();
@@ -874,7 +879,6 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
               ${renderStat("총 과제", taskCount)}
             </div>
           </div>
-          ${canManageHubParticipants(company) ? renderAdminParticipantOverview(company, {canDelete:true}) : ""}
           ${renderPmoPanel(company)}
           ${renderNoticesPanel(company)}
           ${renderOpsCheckPanel(company)}
@@ -929,7 +933,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
   }
 
   function renderAdminParticipantOverview(company, { canDelete = true } = {}) {
-    const rows = company.participants || [];
+    const rows = (company.participants || []).filter(p => canBrowseCompany(company) || isMine(p));
     return `
       <div class="card card-pad">
         <div class="section-title">
@@ -956,8 +960,8 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
                       <span class="badge ${sched.cls}">${sched.label}</span>
                     </button>
                     ${
-                      canDelete
-                        ? `<button type="button" class="btn ghost small" data-action="edit-participant" data-company="${company.id}" data-participant="${participant.id}">수정</button><button type="button" class="btn ghost small danger" data-action="delete-participant" data-company="${company.id}" data-participant="${participant.id}" title="참여자 삭제">삭제</button>`
+                      canEditParticipantProfile(company, participant)
+                        ? `<button type="button" class="btn ghost small" data-action="edit-participant" data-company="${company.id}" data-participant="${participant.id}">수정</button>${canDelete && canManageHubParticipants(company) ? `<button type="button" class="btn ghost small danger" data-action="delete-participant" data-company="${company.id}" data-participant="${participant.id}" title="참여자 삭제">삭제</button>` : ""}`
                         : ""
                     }
                   </div>
@@ -978,7 +982,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
     const browseCompany = canBrowseCompany(company);
     if (!company.participants.length) {
       return `
-        ${browseCompany ? renderAdminParticipantOverview(company, { canDelete: canManageHubParticipants(company) }) : ""}
+        ${renderAdminParticipantOverview(company, { canDelete: canManageHubParticipants(company) })}
         <div class="empty">선택된 참여자가 없습니다. 협력사 허브에서 참여자를 선택하세요.</div>
       `;
     }
@@ -1009,7 +1013,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
 
     return `
       <div class="grid" style="gap:16px">
-        ${browseCompany ? renderAdminParticipantOverview(company, { canDelete: canManageHubParticipants(company) }) : ""}
+        ${renderAdminParticipantOverview(company, { canDelete: canManageHubParticipants(company) })}
       <div class="grid detail-grid">
         <div class="grid">
           <div class="card card-pad">
@@ -2411,7 +2415,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
     }
     if (action === 'edit-participant') {
       const company=state.companies.find(c => c.id === el.dataset.company);
-      if (!canManageHubParticipants(company)) return toast('참여자 관리 권한이 없습니다.');
+      if (!canEditParticipantProfile(company,company?.participants.find(p => p.id === el.dataset.participant))) return toast('참여자 수정 권한이 없습니다.');
       openModal('editParticipant',{companyId:company.id,participantId:el.dataset.participant});
     }
     if (action === "open-report") {
@@ -2801,7 +2805,9 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
 
     if (action === 'add-participant') {
       const company=state.companies.find(c => c.id === state.form.companyId) || currentCompany();
-      if (!canManageHubParticipants(company)) return toast('참여자 관리 권한이 없습니다.');
+      const editing=state.modal === 'editParticipant';
+      const target=company?.participants.find(p => p.id === state.form.participantId);
+      if (editing ? !canEditParticipantProfile(company,target) : !canManageHubParticipants(company)) return toast('참여자 관리 권한이 없습니다.');
       const name=document.getElementById('new-name').value.trim();
       const email=document.getElementById('new-email').value.trim().toLowerCase();
       const dept=document.getElementById('new-dept').value.trim();

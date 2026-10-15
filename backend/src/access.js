@@ -37,7 +37,7 @@ function scopeDashboard(actor, data) {
   assertActorActive(actor, data);
   if (actor.role === 'admin') return data;
   const visibleTaskKeys = ['id','name','progress','difficulty','workStatus','startDate','endDate','reportCompleted'];
-  const companies = data.companies.filter(c => c.id === actor.companyId).map(c => ({...c, participants: c.participants.map(p => {
+  const companies = data.companies.filter(c => c.id === actor.companyId).map(c => ({...c, participants: c.participants.filter(p => actor.role === 'pmo' || owns(actor,p.id)).map(p => {
     if (actor.role === 'pmo' || owns(actor,p.id)) return p;
     return {id:p.id,name:p.name,email:p.email,dept:p.dept,status:p.status,tasks:(p.tasks || []).map(t => Object.fromEntries(visibleTaskKeys.filter(k => k in t).map(k => [k,t[k]])))};
   })}));
@@ -62,7 +62,9 @@ function assertCanApply(actor, changes, data) {
   for (const row of changes.participants.created) { manageParticipant(row.companyId); if (!index.companies.has(row.companyId)) forbid(); }
   for (const row of changes.participants.updated) {
     const found=index.participants.get(row.id); if (!found) throw new StoreConflictError('참여자가 삭제되었습니다.');
-    manageParticipant(found.company.id);
+    if (actor.role === 'participant') {
+      if (!owns(actor,row.id) || found.company.id !== actor.companyId || Object.keys(row.sets || {}).some(k => !['name','email','dept'].includes(k))) forbid();
+    } else manageParticipant(found.company.id);
     if (actor.role !== 'admin' && row.sets?.companyId && row.sets.companyId.value !== actor.companyId) forbid();
   }
   for (const id of changes.participants.deleted) { const found=index.participants.get(id); if (!found) throw new StoreConflictError('참여자가 삭제되었습니다.'); manageParticipant(found.company.id); }
