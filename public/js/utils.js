@@ -836,6 +836,19 @@ function normalizePmo(pmo) {
   return { members: members.filter((row) => row.name || row.position || row.email) };
 }
 
+/** 개인 대시보드·협력사 허브·레포트가 함께 세는 참여자. 과제가 없는 PMO 행은 제외한다. */
+function countedParticipants(company) {
+  const pmoEmails = new Set(
+    normalizePmo(company?.pmo).members
+      .map((member) => String(member.email || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+  return (company?.participants || []).filter((participant) => {
+    const email = String(participant?.email || "").trim().toLowerCase();
+    return !pmoEmails.has(email) || (participant.tasks || []).length > 0;
+  });
+}
+
 function ensureCompanyFields(company) {
   if (!company) return null;
   company.pmo = normalizePmo(company.pmo);

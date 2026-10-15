@@ -205,8 +205,8 @@
     return ensureTaskFields(task);
   }
 
-  function taskRowsForCompany(company) {
-    return company.participants.flatMap((participant) => {
+  function taskRowsForCompany(company, participants = company.participants) {
+    return (participants || []).flatMap((participant) => {
       if (!participant.tasks.length) return [{ company, participant, task: null }];
       return participant.tasks.map((task) => ({ company, participant, task: ensureTaskFields(task) }));
     });
@@ -575,9 +575,12 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
         state.filterParticipantId === "all" || participant.id === state.filterParticipantId;
       return bySearch && byStatus && byCompany && byParticipant;
     });
-    const totalParticipants = participantRows.length;
-    const avg = totalParticipants
-      ? Math.round(participantRows.reduce((sum, row) => sum + avgProgress(row.participant), 0) / totalParticipants)
+    const totalParticipants = state.companies.reduce(
+      (sum, company) => sum + countedParticipants(ensureCompanyFields(company)).length,
+      0
+    );
+    const avg = participantRows.length
+      ? Math.round(participantRows.reduce((sum, row) => sum + avgProgress(row.participant), 0) / participantRows.length)
       : 0;
     const stalledCount = state.companies.reduce(
       (sum, company) => sum + stalledParticipants(ensureCompanyFields(company)).length,
@@ -603,7 +606,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
           ${state.companies
             .map((company) => {
               const c = ensureCompanyFields(company);
-              const participantCount = (c.participants || []).length;
+              const participantCount = countedParticipants(c).length;
               const taskCount = (c.participants || []).reduce((sum, p) => sum + (p.tasks || []).length, 0);
               return `
             <div class="schedule-box">
@@ -858,8 +861,9 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
   function renderCompanyHub() {
     const company = state.auth?.role === 'participant' ? (state.hubCompanies.find(c => c.id === state.auth.companyId) || currentCompany()) : currentCompany();
     if (!company) return '<div class="empty">등록된 협력사가 없습니다. 협력사를 추가해 프로젝트를 시작하세요.</div>';
-    const taskRows = taskRowsForCompany(company);
-    const participantCount = company.participants.length;
+    const visibleParticipants = personalParticipants(company);
+    const taskRows = taskRowsForCompany(company, visibleParticipants);
+    const participantCount = visibleParticipants.length;
     const taskCount = company.participants.reduce((sum, participant) => sum + participant.tasks.length, 0);
     const overallProgressAvg = companyAvg(company);
     const scheduleGoalAvg = companyAchievementAvg(company);
@@ -935,8 +939,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
   }
 
   function personalParticipants(company) {
-    const pmoEmails=new Set(pmoMembersOf(company).map(p => String(p.email || '').trim().toLowerCase()).filter(Boolean));
-    return (company.participants || []).filter(p => !pmoEmails.has(String(p.email || '').trim().toLowerCase()) || p.tasks?.length);
+    return countedParticipants(company);
   }
 
   function renderAdminParticipantOverview(company, { canDelete = true } = {}) {

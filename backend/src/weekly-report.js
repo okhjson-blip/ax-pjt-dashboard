@@ -1,4 +1,5 @@
 const { uid } = require("./store-utils");
+const { normalizePmo } = require("./pmo");
 const { composeWeekSummary, composeNextPlan } = require("./report-draft");
 
 const WORK_STATUSES = ["설계", "개발", "구축", "가동", "운영", "보류"];
@@ -103,11 +104,23 @@ function scheduleAchievementAt(participant, company, weekNumber, currentWeek, no
   return null;
 }
 
+function countedParticipants(company) {
+  const pmoEmails = new Set(
+    normalizePmo(company?.pmo).members
+      .map((member) => String(member.email || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+  return (company?.participants || []).filter((participant) => {
+    const email = String(participant?.email || "").trim().toLowerCase();
+    return !pmoEmails.has(email) || (participant.tasks || []).length > 0;
+  });
+}
+
 function companyOpsSummary(company, weekNumber, now = new Date()) {
   const week = Math.max(1, Number(weekNumber) || 1);
   const currentWeek = getConsultingWeek(company?.schedule?.startDate, now);
   const ref = metricReferenceDate(company, week, now);
-  const participants = company?.participants || [];
+  const participants = countedParticipants(company);
   const taskCount = participants.reduce((sum, participant) => sum + (participant.tasks || []).length, 0);
   const participantCount = participants.length;
   const allTasks={tasks:participants.flatMap(p => p.tasks || [])};
