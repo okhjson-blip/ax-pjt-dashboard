@@ -122,7 +122,7 @@ async function requestAiNarratives(cfg, companyName, rows, useSchema) {
         systemInstruction: {
           parts: [
             {
-              text: "당신은 AX 컨설팅 주간보고 작성자입니다. 제공된 과제 내용만 사용하고, 없는 사실은 만들지 마세요. 한국어로 간결하게 작성하세요. JSON 객체만 반환하세요."
+              text: "당신은 AX 컨설팅 주간보고 작성자입니다. 제공된 과제 내용만 사용하고, 없는 사실은 만들지 마세요. 한국어로 간결하게 작성하세요. 금주 요약과 차주 계획은 각각 공통 사항 및 특이점 중심의 3~4줄로 작성하세요. 각 줄은 핵심 문장 하나로 쓰고 실제 줄바꿈으로 구분하세요. JSON 객체만 반환하세요."
             }
           ]
         },
@@ -134,7 +134,7 @@ async function requestAiNarratives(cfg, companyName, rows, useSchema) {
                 text: JSON.stringify({
                   company: companyName || "협력사",
                   instruction:
-                    "weekSummary는 각 과제의 thisWeek(금주 진전)만 모아 한 편의 금주 요약으로 작성하세요. nextWeekPlan은 각 과제의 nextWeek(차주 계획)만 모아 차주 계획으로 작성하세요. 비어 있는 과제는 없다고 짧게 적으세요.",
+                    "weekSummary는 thisWeek(금주 진전)만 근거로, nextWeekPlan은 nextWeek(차주 계획)만 근거로 각각 3~4줄로 작성하세요. 과제별 내용을 나열하지 말고 여러 과제의 공통 진행 사항 또는 공통 계획을 묶어 먼저 요약한 뒤, 중요한 특이점·성과·지연·위험·우선 확인 사항 중 입력에 근거가 있는 내용만 선별하세요. 공통 사항이 확인되지 않으면 개별 핵심 사항을 요약하고, 없는 공통점이나 특이점을 만들어내지 마세요. 중복 설명, 과제명·담당자 전수 나열, 제목과 번호는 생략하세요. 각 필드 문자열은 한 줄에 핵심 문장 하나씩 실제 줄바꿈을 포함하도록 작성하고, JSON에서는 줄바꿈을 올바르게 이스케이프하세요. 입력이 비어 있으면 미작성 또는 확인 필요 사실만 명시하고 임의의 성과나 계획을 추가하지 마세요.",
                   tasks: narrativePayload(rows)
                 })
               }

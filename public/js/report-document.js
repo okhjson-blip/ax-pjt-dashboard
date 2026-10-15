@@ -308,14 +308,18 @@ async function downloadWeeklyReportPdf(doc, filename) {
   wrapper.innerHTML = renderWeeklyReportPdfHtml(doc);
   document.body.appendChild(wrapper);
   const element = wrapper.querySelector(".pdf-report");
+  // Match A4 printable width before html2pdf measures row/page boundaries.
+  element.style.width = "186mm";
   try {
     if (typeof html2pdf === "undefined") {
       throw new Error("PDF 라이브러리를 불러오지 못했습니다.");
     }
+    if (document.fonts?.ready) await document.fonts.ready;
     await html2pdf()
       .set({
         margin: [12, 12, 14, 12],
         filename: name,
+        pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', 'thead', 'p', 'li', 'h1', 'h2', 'h3', '.pdf-head'] },
         image: { type: "jpeg", quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }

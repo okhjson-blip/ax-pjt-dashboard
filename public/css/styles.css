@@ -1763,3 +1763,17 @@ select.difficulty-select.readonly {
 .weekly-report-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .weekly-report-heading h3 { min-width: 0; }
 .weekly-report-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+
+/* PDF page boundaries must not cut through table rows or text blocks. */
+.pdf-report tr,
+.pdf-report thead,
+.pdf-report p,
+.pdf-report li,
+.pdf-report .pdf-head,
+.pdf-report h1,
+.pdf-report h2,
+.pdf-report h3 {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.pdf-report th, .pdf-report td { overflow-wrap: anywhere; }
