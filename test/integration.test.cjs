@@ -154,6 +154,7 @@ function uiAudit(data){
       return {...r,evidence:(await db.query("select id,company_id,name from participants where id='p3'")).rows[0]};
     });
   }
+  await check('participant_hub_summary_scope',200,async()=>{const r=await api('/dashboard','participant');assert.deepEqual(r.body.hubCompanies.map(c=>c.id),['c1']);assert.equal(r.body.hubCompanies[0].participants.length,2);assert.equal(r.body.hubCompanies[0].notices[0].title,'Original');const peer=r.body.hubCompanies[0].participants.find(p=>p.id==='p1');assert.equal(peer.tasks[0].name,'Alice task');assert.equal(peer.tasks[0].weeklySummary,undefined);assert.equal(peer.tasks[0].members,undefined);return r;});
   await check('participant_only_own_profile_returned',200,async()=>{const r=await api('/dashboard','participant');assert.deepEqual(r.body.companies[0].participants.map(p=>p.id),['p2']);return r;});
   await check('participant_other_profile_edit_blocked',403,()=>patch('participant',{participants:{updated:[{id:'p1',sets:{dept:{base:'',value:'No'}}}]}}));
   await check('participant_own_company_move_blocked',403,()=>patch('participant',{participants:{updated:[{id:'p2',sets:{companyId:{base:'c1',value:'c2'}}}]}}));

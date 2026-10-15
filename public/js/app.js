@@ -19,6 +19,7 @@
     modal: null,
     form: {},
     companies: [],
+    hubCompanies: [],
     meta: {},
     baseline: null,
     lastLocalSaveAt: null
@@ -855,7 +856,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
   }
 
   function renderCompanyHub() {
-    const company = currentCompany();
+    const company = state.auth?.role === 'participant' ? (state.hubCompanies.find(c => c.id === state.auth.companyId) || currentCompany()) : currentCompany();
     if (!company) return '<div class="empty">등록된 협력사가 없습니다. 협력사를 추가해 프로젝트를 시작하세요.</div>';
     const taskRows = taskRowsForCompany(company);
     const participantCount = company.participants.length;
@@ -901,7 +902,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
                       const reportDone = Boolean(ensureTaskFields(task)?.reportCompleted);
                       const reportLabel = reportDone ? "주간보고 작성완료" : "주간보고 미작성";
                       const reportCls = reportDone ? "green" : "red";
-                      const feedbackDone = Boolean(task?.instructorFeedback?.trim());
+                      const feedbackDone = Boolean(task?.hasInstructorFeedback || task?.instructorFeedback?.trim());
                       const canOpenDetail = canViewParticipant(participant);
                       return `
               <div class="task-progress-card ${participant.id === state.auth?.participantId ? "mine" : ""}">
@@ -2178,6 +2179,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
   }
 
   function applyDashboardData(data) {
+    state.hubCompanies = (data.hubCompanies || []).map(c => ensureCompanyFields(c));
     state.companies = (data.companies || []).map((c) => ensureCompanyFields(c));
     state.companies.forEach((c) =>
       c.participants.forEach((p) => p.tasks.forEach((t) => ensureTaskFields(t)))

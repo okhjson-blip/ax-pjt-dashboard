@@ -32,16 +32,21 @@ function assertCompanyRead(actor, companyId, data, {report = false} = {}) {
   if (actor.role === 'admin') return;
   if (actor.companyId !== companyId || (report && actor.role !== 'pmo')) forbid();
 }
-// A hub contains progress summaries; private report/member fields are omitted for peers.
+// Keep hub summaries outside the personal write snapshot.
 function scopeDashboard(actor, data) {
   assertActorActive(actor, data);
   if (actor.role === 'admin') return data;
-  const visibleTaskKeys = ['id','name','progress','difficulty','workStatus','startDate','endDate','reportCompleted'];
-  const companies = data.companies.filter(c => c.id === actor.companyId).map(c => ({...c, participants: c.participants.filter(p => actor.role === 'pmo' || owns(actor,p.id)).map(p => {
-    if (actor.role === 'pmo' || owns(actor,p.id)) return p;
-    return {id:p.id,name:p.name,email:p.email,dept:p.dept,status:p.status,tasks:(p.tasks || []).map(t => Object.fromEntries(visibleTaskKeys.filter(k => k in t).map(k => [k,t[k]])))};
-  })}));
-  return {companies,meta:{lastSavedAt:data.meta?.lastSavedAt || null}};
+  const ownCompanies=data.companies.filter(c => c.id === actor.companyId);
+  const companies=ownCompanies.map(c => ({...c,participants:c.participants.filter(p => actor.role === 'pmo' || owns(actor,p.id))}));
+  const result={companies,meta:{lastSavedAt:data.meta?.lastSavedAt || null}};
+  if (actor.role === 'participant') {
+    const taskKeys=['id','name','progress','difficulty','workStatus','startDate','endDate','reportCompleted'];
+    result.hubCompanies=ownCompanies.map(c => ({...c,participants:c.participants.map(p => ({
+      id:p.id,name:p.name,email:p.email,dept:p.dept,status:p.status,
+      tasks:(p.tasks || []).map(t => ({...Object.fromEntries(taskKeys.filter(k => k in t).map(k => [k,t[k]])),hasInstructorFeedback:Boolean(String(t.instructorFeedback || '').trim())}))
+    }))}));
+  }
+  return result;
 }
 function assertCanApply(actor, changes, data) {
   if (!['admin','pmo','participant'].includes(actor?.role)) forbid();
