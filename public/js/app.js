@@ -2120,6 +2120,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
     }
     if (!state.auth) renderLogin();
     else renderShell();
+    if (state.modal === "report" && state.form.reportDoc) refreshWeeklyReportPreview().catch(err => toast(err.message));
     saveSession();
     if (document.getElementById("process-asis-list") || document.getElementById("process-tobe-list")) {
       refreshProcessPreview();
@@ -3026,7 +3027,10 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
         state.form.reportDoc.body.narrativeSource = "edited";
       }
       const preview = document.querySelector(".report-pdf-preview");
-      if (preview) preview.innerHTML = renderWeeklyReportPdfHtml(state.form.reportDoc);
+      if (preview) {
+        preview.innerHTML = renderWeeklyReportPdfHtml(state.form.reportDoc);
+        refreshWeeklyReportPreview().catch(err => toast(err.message));
+      }
     }
 
     const el = event.target.closest("[data-action]");
@@ -3110,7 +3114,10 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
         state.form.reportDoc.body.narrativeSource = "edited";
       }
       const preview = document.querySelector(".report-pdf-preview");
-      if (preview) preview.innerHTML = renderWeeklyReportPdfHtml(state.form.reportDoc);
+      if (preview) {
+        preview.innerHTML = renderWeeklyReportPdfHtml(state.form.reportDoc);
+        refreshWeeklyReportPreview().catch(err => toast(err.message));
+      }
     }
 
     const el = event.target.closest("[data-action]");

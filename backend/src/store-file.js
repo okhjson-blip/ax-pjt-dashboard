@@ -90,6 +90,21 @@ async function getCompanyWeeklyReport(companyId, weekNumber) {
   ) || null;
 }
 
+async function backfillCompanyWeeklyReportSource(doc, saved) {
+  // Synchronous read/compare/write keeps this metadata update indivisible
+  // within the local JSON driver's process.
+  ensureDataFile();
+  const data = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+  const current = (data.companyWeeklyReports || []).find(row => row.id === doc.id);
+  if (current?.status === "published" && current.updatedAt === saved.updatedAt &&
+      JSON.stringify(current.source || {}) === JSON.stringify(saved.source || {})) {
+    current.source = doc.source;
+    data.replaceCompanyWeeklyReports = true;
+    writeDataSync(data);
+  }
+  return current || null;
+}
+
 async function upsertCompanyWeeklyReport(doc) {
   const data = await readData();
   const reports = Array.isArray(data.companyWeeklyReports) ? data.companyWeeklyReports : [];
@@ -114,5 +129,6 @@ module.exports = {
   resetData,
   getCompanyWeeklyReport,
   upsertCompanyWeeklyReport,
+  backfillCompanyWeeklyReportSource,
   uid
 };

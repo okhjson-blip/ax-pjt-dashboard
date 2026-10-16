@@ -288,6 +288,23 @@ async function getCompanyWeeklyReport(companyId, weekNumber) {
   });
 }
 
+async function backfillCompanyWeeklyReportSource(doc, saved) {
+  return withSupabaseRetry(async () => {
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb.from("company_weekly_reports")
+      .update({ source: doc.source })
+      .eq("id", doc.id)
+      .eq("status", "published")
+      .eq("updated_at", saved.updatedAt)
+      .eq("source", JSON.stringify(saved.source || {}))
+      .select("*")
+      .maybeSingle();
+    if (error) throw error;
+    // A concurrent writer won: return its document rather than overwrite it.
+    return data ? mapCompanyWeeklyReportRow(data) : getCompanyWeeklyReport(doc.companyId, doc.weekNumber);
+  });
+}
+
 async function upsertCompanyWeeklyReport(doc) {
   return withSupabaseRetry(async () => {
     const sb = getSupabaseAdmin();
@@ -330,6 +347,7 @@ module.exports = {
   resetData,
   getCompanyWeeklyReport,
   upsertCompanyWeeklyReport,
+  backfillCompanyWeeklyReportSource,
   uid,
   weeklyReportId
 };

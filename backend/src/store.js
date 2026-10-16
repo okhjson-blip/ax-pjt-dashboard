@@ -19,6 +19,7 @@ module.exports = {
   resetData: (...args) => driver.resetData(...args),
   getCompanyWeeklyReport: (...args) => driver.getCompanyWeeklyReport(...args),
   upsertCompanyWeeklyReport: (...args) => driver.upsertCompanyWeeklyReport(...args),
+  backfillCompanyWeeklyReportSource: (...args) => driver.backfillCompanyWeeklyReportSource(...args),
   uid,
   isSupabaseConfigured
 };

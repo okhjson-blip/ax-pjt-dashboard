@@ -43,16 +43,16 @@ function elapsedRateFromDates(startDate, endDate, now = new Date()) {
   return Math.round((elapsed / total) * 100);
 }
 
-function companyElapsedRate(company) {
-  return elapsedRateFromDates(company?.schedule?.startDate, company?.schedule?.endDate);
+function companyElapsedRate(company, now = new Date()) {
+  return elapsedRateFromDates(company?.schedule?.startDate, company?.schedule?.endDate, now);
 }
 
 /** 과제 기대 진척: 과제 일정 우선, 없으면 협력사 일정 */
-function taskExpectedProgress(task, company) {
+function taskExpectedProgress(task, company, now = new Date()) {
   const t = ensureTaskFields(task);
-  const own = elapsedRateFromDates(t.startDate, t.endDate);
+  const own = elapsedRateFromDates(t.startDate, t.endDate, now);
   if (own !== null) return own;
-  return companyElapsedRate(company);
+  return companyElapsedRate(company, now);
 }
 
 /** 전체 진척도: 과제별 진척도의 단순 평균 */
@@ -224,8 +224,8 @@ function taskScheduleClass(task, company) {
 }
 
 /** 과제별 일정 상태(라벨·색) */
-function taskScheduleStatus(task, company) {
-  const expected = taskExpectedProgress(task, company);
+function taskScheduleStatus(task, company, now = new Date()) {
+  const expected = taskExpectedProgress(task, company, now);
   if (expected === null) {
     return { label: "일정미설정", cls: "gray", expected: null, diff: 0 };
   }

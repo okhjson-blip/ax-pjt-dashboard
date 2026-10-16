@@ -36,9 +36,16 @@ const store={
     catch(e){if(e.code==='P0001')throw new StoreConflictError(e.message);if(e.code==='42501')throw new (appRequire('./backend/src/access').AccessError)();throw e;}
   },
   updateMeta:async()=>({}),
-  getCompanyWeeklyReport:async()=>null,
+  getCompanyWeeklyReport:async(companyId,weekNumber)=>service(async()=>{
+    const row=(await db.query('select *, updated_at::text as updated_at_text from company_weekly_reports where company_id=$1 and week_number=$2',[companyId,weekNumber])).rows[0];
+    return row ? {id:row.id,companyId:row.company_id,weekNumber:row.week_number,status:row.status,title:row.title,body:row.body,source:row.source,publishedAt:row.published_at?.toISOString(),updatedAt:row.updated_at_text} : null;
+  }),
+  backfillCompanyWeeklyReportSource:async(doc,saved)=>{
+    await service(()=>db.query("update company_weekly_reports set source=$1 where id=$2 and status='published' and updated_at=$3 and source=$4",[JSON.stringify(doc.source),doc.id,saved.updatedAt,JSON.stringify(saved.source || {})]));
+    return store.getCompanyWeeklyReport(doc.companyId,doc.weekNumber);
+  },
   upsertCompanyWeeklyReport:async doc=>service(async()=>{
-    await db.query('insert into company_weekly_reports(id,company_id,week_number,body,status) values($1,$2,$3,$4,$5) on conflict(company_id,week_number) do update set body=excluded.body,status=excluded.status',[doc.id,doc.companyId,doc.weekNumber,JSON.stringify(doc.body),doc.status]);return doc;
+    await db.query('insert into company_weekly_reports(id,company_id,week_number,body,status,source,published_at) values($1,$2,$3,$4,$5,$6,$7) on conflict(company_id,week_number) do update set body=excluded.body,status=excluded.status,source=excluded.source,published_at=excluded.published_at',[doc.id,doc.companyId,doc.weekNumber,JSON.stringify(doc.body),doc.status,JSON.stringify(doc.source || {}),doc.publishedAt || null]);return doc;
   })
 };
 async function fixture(){
@@ -172,6 +179,20 @@ function uiAudit(data){
   await check('pmo_other_company_report_read_blocked',403,()=>api('/companies/c2/weekly-reports/1','pmo'));
   await check('guest_company_narrative_blocked',401,()=>api('/companies/c2/weekly-reports/1/narrative',null,'POST',{}));
   await check('pmo_hub_report_draft_save',403,()=>api('/companies/c1/weekly-reports/1','pmo','PUT',{body:{weekSummary:'Test'}}));
+  await check('published_report_backfills_schedule_once',200,async()=>{
+    await store.upsertCompanyWeeklyReport({id:'legacy-report',companyId:'c1',weekNumber:1,status:'published',title:'Legacy',body:{taskRows:[]},source:{},publishedAt:'2026-10-01T00:00:00Z'});
+    const first=await api('/companies/c1/weekly-reports/1','admin');
+    assert.equal(first.status,200);
+    const snapshot=first.body.report.source.companySchedule;
+    assert.equal(String(snapshot.startDate).slice(0,10),'2026-10-01');
+    const saved=await store.getCompanyWeeklyReport('c1',1);
+    assert.deepEqual(saved.source.companySchedule,snapshot);
+    await db.query("update companies set start_date='2026-09-01' where id='c1'");
+    const second=await api('/companies/c1/weekly-reports/1','admin');
+    assert.deepEqual(second.body.report.source.companySchedule,snapshot);
+    assert.equal(second.body.report.publishedAt,first.body.report.publishedAt);
+    return second;
+  });
   await fixture();
   const ui=uiAudit(await store.readData());
   const dbChecks=[];

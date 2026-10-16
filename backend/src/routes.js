@@ -6,7 +6,8 @@ const {
   uid,
   isSupabaseConfigured,
   getCompanyWeeklyReport,
-  upsertCompanyWeeklyReport
+  upsertCompanyWeeklyReport,
+  backfillCompanyWeeklyReportSource
 } = require("./store");
 const {
   getConsultingWeek,
@@ -306,7 +307,13 @@ function createRouter() {
 
       const saved = await getCompanyWeeklyReport(companyId, weekNumber);
       if (saved) {
-        const report = normalizeReportDoc(saved, company);
+        let report = normalizeReportDoc(saved, company);
+        // Backfill the report's schedule snapshot once so later company
+        // schedule edits cannot change status badges on a published reprint.
+        if (report.status === "published" && !saved.source?.companySchedule) {
+          const latest = await backfillCompanyWeeklyReportSource(report, saved);
+          if (latest) report = normalizeReportDoc(latest, company);
+        }
         if (report.status !== "published") {
           const legacyShape = !Array.isArray(saved.body?.taskRows);
           await refreshOpenDraft(report, company, weekNumber, { replaceTasks: legacyShape });

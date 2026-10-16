@@ -207,7 +207,7 @@ function emptyReportDoc(company, weekNumber) {
     companyId: company?.id || "",
     weekNumber: week,
     status: "draft",
-    title: `${company?.name || "협력사"} 주간보고 (${week}주차)`,
+    title: `${company?.name || "협력사"} AX 과제 주간보고 (${week}주차)`,
     subtitle: "",
     periodStart: range.periodStart,
     periodEnd: range.periodEnd,
@@ -271,6 +271,8 @@ function assembleCompanyWeeklyReport(company, weekNumber, now = new Date()) {
     footerNote: ""
   };
   doc.source = {
+    companyName: company?.name || "",
+    companySchedule: clone(company?.schedule || {}),
     assembledAt: now.toISOString(),
     weekNumber: week,
     currentWeek,
@@ -501,13 +503,18 @@ function normalizeReportDoc(input, company) {
     companyId: input?.companyId || company?.id || fallback.companyId,
     weekNumber: week,
     status: published ? "published" : "draft",
-    title: input?.title || fallback.title,
+    title: !published && input?.title === `${company?.name || "협력사"} 주간보고 (${week}주차)`
+      ? fallback.title : input?.title || fallback.title,
     subtitle: "",
     periodStart: input?.periodStart || fallback.periodStart,
     periodEnd: input?.periodEnd || fallback.periodEnd,
     location: input?.location || "",
     body,
-    source: input?.source && typeof input.source === "object" ? input.source : {},
+    source: {
+      companyName: company?.name || "",
+      companySchedule: clone(company?.schedule || {}),
+      ...(input?.source && typeof input.source === "object" ? input.source : {})
+    },
     publishedAt: input?.publishedAt || null,
     updatedAt: input?.updatedAt || null
   };
