@@ -1805,13 +1805,13 @@ select.difficulty-select.readonly {
 .pdf-report .pdf-head h1 { font-family: Georgia, "Batang", serif; color: var(--pdf-navy); font-size: 22px; margin: 8px 0 4px; line-height: 1.4; }
 .pdf-report .pdf-meta { color: var(--pdf-muted); font-size: 10px; margin: 0 0 12px; }
 .pdf-report .pdf-action { padding: 10px 14px; border-left: 4px solid var(--pdf-teal); background: #f4f7fa; color: var(--pdf-navy); font-weight: 700; margin-bottom: 8px; }
-.pdf-report h2 { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--pdf-navy); margin: 17px 0 8px; padding: 0; border: 0; }
+.pdf-report h2 { display: flex; align-items: center; gap: 8px; font-size: 18px; color: var(--pdf-navy); margin: 17px 0 8px; padding: 0; border: 0; }
 .pdf-report h2.pdf-summary-section { margin: 24px 0 10px; }
 .pdf-report h2::after { content: ""; flex: 1; height: 1px; background: #d5dbe3; }
 .pdf-report h2 em { color: var(--pdf-teal); font-style: normal; }
-.pdf-report h3 { color: var(--pdf-navy); font-size: 13px; margin: 9px 0 5px; }
-.pdf-report p { margin: 0 0 7px; }
-.pdf-report ul { margin: 0 0 7px; padding-left: 16px; }
+.pdf-report h3 { color: var(--pdf-navy); font-size: 16px; margin: 9px 0 5px; }
+.pdf-report p { font-size: 14px; margin: 0 0 7px; }
+.pdf-report ul { font-size: 14px; margin: 0 0 7px; padding-left: 16px; }
 .pdf-report .pdf-kpis { display: flex; border: 1px solid #d5dbe3; }
 .pdf-report .pdf-kpis > div { width: 25%; padding: 10px 12px; border-right: 1px solid #d5dbe3; }
 .pdf-report .pdf-kpis > div:last-child { border: 0; }
