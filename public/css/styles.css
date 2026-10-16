@@ -1791,7 +1791,7 @@ select.difficulty-select.readonly {
   color: #1f2937;
   background: var(--pdf-paper);
   font-family: "Pretendard", "Malgun Gothic", "Noto Sans KR", sans-serif;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
   word-break: keep-all;
   overflow-wrap: anywhere;
@@ -1802,21 +1802,21 @@ select.difficulty-select.readonly {
 .pdf-report .pdf-page-body { height: 254mm; padding-top: 1px; display: flow-root; }
 .pdf-report .pdf-page-number { position: absolute; bottom: 4mm; right: 6mm; color: #8a93a3; font-size: 8px; }
 .report-pdf-preview .pdf-page { box-shadow: inset 0 -1px #d5dbe3; }
-.pdf-report .pdf-head h1 { font-family: Georgia, "Batang", serif; color: var(--pdf-navy); font-size: 25px; margin: 8px 0 4px; line-height: 1.4; }
+.pdf-report .pdf-head h1 { font-family: Georgia, "Batang", serif; color: var(--pdf-navy); font-size: 22px; margin: 8px 0 4px; line-height: 1.4; }
 .pdf-report .pdf-meta { color: var(--pdf-muted); font-size: 10px; margin: 0 0 12px; }
 .pdf-report .pdf-action { padding: 10px 14px; border-left: 4px solid var(--pdf-teal); background: #f4f7fa; color: var(--pdf-navy); font-weight: 700; margin-bottom: 8px; }
-.pdf-report h2 { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--pdf-navy); margin: 17px 0 8px; padding: 0; border: 0; }
+.pdf-report h2 { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--pdf-navy); margin: 17px 0 8px; padding: 0; border: 0; }
 .pdf-report h2.pdf-summary-section { margin: 24px 0 10px; }
 .pdf-report h2::after { content: ""; flex: 1; height: 1px; background: #d5dbe3; }
 .pdf-report h2 em { color: var(--pdf-teal); font-style: normal; }
-.pdf-report h3 { color: var(--pdf-navy); font-size: 12px; margin: 9px 0 5px; }
+.pdf-report h3 { color: var(--pdf-navy); font-size: 13px; margin: 9px 0 5px; }
 .pdf-report p { margin: 0 0 7px; }
 .pdf-report ul { margin: 0 0 7px; padding-left: 16px; }
 .pdf-report .pdf-kpis { display: flex; border: 1px solid #d5dbe3; }
 .pdf-report .pdf-kpis > div { width: 25%; padding: 10px 12px; border-right: 1px solid #d5dbe3; }
 .pdf-report .pdf-kpis > div:last-child { border: 0; }
 .pdf-report .pdf-kpis span { display: block; font-size: 9px; color: var(--pdf-muted); }
-.pdf-report .pdf-kpis strong { display: block; font: bold 27px/1.3 Georgia, serif; color: var(--pdf-navy); }
+.pdf-report .pdf-kpis strong { display: block; font: bold 24px/1.3 Georgia, serif; color: var(--pdf-navy); }
 .pdf-report .pdf-kpis small { font-size: 11px; margin-left: 3px; }
 .pdf-report .pdf-stack { display: flex; height: 9px; background: #e3e8ef; border-radius: 2px; overflow: hidden; margin-top: 10px; }
 .pdf-report .pdf-legend { display: flex; gap: 14px; margin-top: 5px; color: var(--pdf-muted); font-size: 9px; }
@@ -1835,26 +1835,25 @@ select.difficulty-select.readonly {
 .pdf-report .pdf-progress-value { font-weight: 700; font-size: 10px; margin-bottom: 3px; }
 .pdf-report table { table-layout: fixed; border-collapse: collapse; width: 100%; font-size: 10px; }
 .pdf-report th, .pdf-report td { border: 0; border-bottom: 1px solid #e3e8ef; padding: 7px 6px; line-height: 1.5; vertical-align: top; text-align: left; }
-.pdf-report thead th { background: var(--pdf-paper); color: var(--pdf-muted); border-bottom: 2px solid var(--pdf-navy); font-size: 9px; }
+.pdf-report thead th { background: var(--pdf-paper); color: var(--pdf-muted); border-bottom: 2px solid var(--pdf-navy); font-size: 10px; }
 .pdf-report .pdf-watchlist thead th { background: var(--pdf-navy); color: white; }
 .pdf-report .pdf-muted { color: var(--pdf-muted); font-size: 9px; margin: 3px 0; }
 .pdf-report, .pdf-report th, .pdf-report td { word-break: keep-all; overflow-wrap: break-word; line-break: strict; hyphens: none; }
 .pdf-report .pdf-task-title { position: relative; padding-left: 12px; }
 .pdf-report .pdf-task-title > .pdf-dot { position: absolute; left: 0; top: 4px; margin: 0; }
 .pdf-report .pdf-task-meta { padding-left: 12px; }
-.pdf-report .pdf-watchlist { font-size: 9.5px; }
+.pdf-report .pdf-watchlist { font-size: 10px; }
 .pdf-report .pdf-watchlist th, .pdf-report .pdf-watchlist td { padding: 4px 5px; line-height: 1.4; }
 .pdf-report .pdf-watchlist td:nth-child(3), .pdf-report .pdf-watchlist td:nth-child(4) { white-space: nowrap; }
 .pdf-report .pdf-watchlist .pdf-muted { margin: 1px 0 0; }
 /* Tighten only the summary when sections 01–03 would otherwise overflow.
    Exceptionally large reports still continue rather than shrink illegibly. */
 .pdf-report.pdf-summary-compact h2.pdf-summary-section { margin: 18px 0 8px; }
-.pdf-report.pdf-summary-compact .pdf-head h1 { font-size: 23px; }
 .pdf-report.pdf-summary-compact .pdf-action { padding: 8px 12px; }
 .pdf-report.pdf-summary-compact .pdf-kpis > div { padding: 8px 12px; }
 .pdf-report.pdf-summary-compact .pdf-text-unit p,
-.pdf-report.pdf-summary-compact .pdf-text-unit ul { font-size: 10.5px; margin-bottom: 5px; }
-.pdf-report.pdf-summary-compact .pdf-watchlist { font-size: 9px; }
+.pdf-report.pdf-summary-compact .pdf-text-unit ul { margin-bottom: 5px; }
+.pdf-report.pdf-summary-compact .pdf-watchlist { font-size: 9.5px; }
 .pdf-report.pdf-summary-compact .pdf-watchlist th,
 .pdf-report.pdf-summary-compact .pdf-watchlist td { padding: 3px 5px; }
 .pdf-report.pdf-summary-dense h2.pdf-summary-section { margin: 14px 0 7px; }

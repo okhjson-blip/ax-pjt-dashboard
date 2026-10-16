@@ -103,7 +103,7 @@ function renderWeeklyReportPdfHtml(doc) {
     <div class="pdf-source">
       <header class="pdf-head"><h1>${reportEscape(doc.title || "주간보고")}</h1><p class="pdf-meta">보고 기간 ${reportEscape(period || "미설정")}</p></header>
       <div class="pdf-action">${ops.taskCount}개 과제 · 정체 ${counts.red}건${counts.gray ? ` · 일정미설정 ${counts.gray}건` : ""} — ${risk.length ? "중점 관리 과제 확인 필요" : "과제별 진행 현황 확인"}</div>
-      <h2 class="pdf-summary-section"><em>01</em> 협력사 운영 요약</h2>
+      <h2 class="pdf-summary-section"><em>01</em> 과제 운영 요약</h2>
       <div class="pdf-kpis">${[["총 과제수",ops.taskCount,"건"],["총 참여자 수",ops.participantCount,"명"],["과제 진척도",ops.progress,"%"],["일정 목표 달성률",ops.scheduleGoalRate,"%"]].map(([label,value,unit]) => `<div><span>${label}</span><strong>${value}<small>${unit}</small></strong></div>`).join("")}</div>
       <div class="pdf-distribution"><div class="pdf-stack">${stack}</div><div class="pdf-legend">${legend}</div></div>
       <h2 class="pdf-summary-section"><em>02</em> 금주 요약 및 차주 계획</h2>
@@ -180,7 +180,7 @@ function renderWeeklyReportEditorHtml(doc, options = {}) {
 
       <div class="section-title">
         <div>
-          <h3>1. 협력사 운영 요약</h3>
+          <h3>1. 과제 운영 요약</h3>
           <p>협력사 허브와 같은 기준으로 계산합니다. 총 과제수, 총 참여자 수, 과제 진척도, 일정 목표 달성율입니다.</p>
         </div>
       </div>
