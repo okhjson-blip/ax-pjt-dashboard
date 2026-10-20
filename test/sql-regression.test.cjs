@@ -13,5 +13,19 @@ test('SQL storage invariants',async t=>{
  await t.test('transaction rejects stale ownership after reassignment',async()=>{await setup();await db.exec("insert into participants(id,company_id,name,email)values('p2','c1','Two','two@example.com');update tasks set participant_id='p2' where id='t1'");await assert.rejects(()=>db.query('select apply_authorized_dashboard_changes($1::jsonb,$2::jsonb)',[JSON.stringify({tasks:{updated:[{id:'t1',sets:{name:{base:'Original',value:'Stale owner edit'}}}]}}),JSON.stringify({role:'participant',companyId:'c1',participantId:'p1',email:'one@example.com'})]),e=>e.code==='42501');assert.equal((await db.query("select name from tasks where id='t1'")).rows[0].name,'Original');});
  await t.test('PMO stale personal link cannot cross company boundaries',async()=>{await setup();await db.exec(`update companies set extras='{"pmo":{"members":[{"name":"One","email":"one@example.com"}]}}' where id='c1';insert into companies(id,name)values('c2','Two');update participants set company_id='c2' where id='p1';`);await assert.rejects(()=>db.query('select apply_authorized_dashboard_changes($1::jsonb,$2::jsonb)',[JSON.stringify({tasks:{updated:[{id:'t1',sets:{name:{base:'Original',value:'Cross-company edit'}}}]}}),JSON.stringify({role:'pmo',name:'One',companyId:'c1',participantId:'p1',email:'one@example.com'})]),e=>e.code==='42501');});
  await t.test('self profile is editable but peers and protected fields remain denied',async()=>{await setup();await db.exec("insert into participants(id,company_id,name,email)values('p2','c1','Two','two@example.com')");const actor={role:'participant',companyId:'c1',participantId:'p1',email:'one@example.com'};const guarded=changes=>db.query('select apply_authorized_dashboard_changes($1::jsonb,$2::jsonb)',[JSON.stringify(changes),JSON.stringify(actor)]);await guarded({participants:{updated:[{id:'p1',sets:{dept:{base:'',value:'Team'}}}]}});assert.equal((await db.query("select dept from participants where id='p1'")).rows[0].dept,'Team');for(const [id,key,base,value]of [['p2','dept','','No'],['p1','companyId','c1','c2'],['p1','instructorMemo','','No']])await assert.rejects(()=>guarded({participants:{updated:[{id,sets:{[key]:{base,value}}}]}}),e=>e.code==='42501');await assert.rejects(()=>guarded({participants:{deleted:['p1']}}),e=>e.code==='42501');});
+ await t.test('authorized process writes succeed and SQL denials carry specific reasons',async()=>{
+  await setup();
+  await db.exec(`update companies set extras='{"pmo":{"members":[{"name":"One","email":"one@example.com"}]}}' where id='c1';insert into participants(id,company_id,name,email)values('p2','c1','Two','two@example.com');insert into tasks(id,participant_id,name)values('t2','p2','Peer');`);
+  const baseActor={role:'pmo',name:'One',companyId:'c1',participantId:'p1',email:'one@example.com'};
+  const guarded=(actor,id='t1')=>db.query('select apply_authorized_dashboard_changes($1::jsonb,$2::jsonb)',[JSON.stringify({tasks:{updated:[{id,sets:{asIsProcess:{base:'',value:'Changed process'}}}]}}),JSON.stringify(actor)]);
+  for(const [actor,id,reason] of [
+   [{...baseActor,participantId:null},'t1','PARTICIPANT_LINK_REQUIRED'],
+   [{...baseActor,participantId:'p2'},'t2','PARTICIPANT_EMAIL_MISMATCH'],
+   [baseActor,'t2','TASK_OWNER_MISMATCH'],
+   [{...baseActor,name:'Revoked PMO'},'t1','PMO_MEMBERSHIP_CHANGED']
+  ])await assert.rejects(()=>guarded(actor,id),err=>err.code==='42501'&&err.detail===reason);
+  await guarded(baseActor);
+  assert.equal((await db.query("select extras->>'asIsProcess' as process from tasks where id='t1'")).rows[0].process,'Changed process');
+ });
  }finally{await db.close();}
 });

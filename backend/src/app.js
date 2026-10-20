@@ -74,7 +74,7 @@ function createApp() {
     }
     const status = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 500;
     if (status >= 500) console.error(err);
-    res.status(status).json({ error: err.message || "서버 오류가 발생했습니다." });
+    res.status(status).json({ error: err.message || "서버 오류가 발생했습니다.", ...(err.status === 403 ? { code: err.code || 'ACCESS_DENIED', source: err.source || 'server' } : {}) });
   });
 
   return app;

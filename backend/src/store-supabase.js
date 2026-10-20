@@ -174,7 +174,11 @@ async function readData() {
 
 function mapChangeError(error) {
   const msg = String(error?.message || '');
-  if (error?.code === '42501') return new (require('./access').AccessError)();
+  if (error?.code === '42501') {
+    const { messages } = require('../../public/js/task-access');
+    const code = Object.hasOwn(messages, error.details) ? error.details : 'DB_PERMISSION_DENIED';
+    return new (require('./access').AccessError)(null, code, 'database');
+  }
   if (error?.code === "23505" || /23505|duplicate key/i.test(msg)) {
     return new StoreConflictError("이미 존재하는 항목 또는 이메일입니다. 최신 내용을 불러온 뒤 다시 시도해 주세요.");
   }

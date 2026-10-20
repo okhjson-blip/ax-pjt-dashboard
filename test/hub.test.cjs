@@ -11,6 +11,7 @@ test('participant hub includes full company summaries while personal data stays 
 function ui(){
  const listeners={},elements={app:{innerHTML:''},toast:{appendChild:()=>{}}},storage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
  const ctx=vm.createContext({console,Date,setTimeout:()=>0,clearTimeout:()=>{},API:{setToken:()=>{}},localStorage:storage,sessionStorage:storage,window:{alert:()=>{},confirm:()=>true},document:{getElementById:id=>elements[id]||null,addEventListener:(n,fn)=>listeners[n]=fn,querySelector:()=>null,querySelectorAll:()=>[]}});
+ vm.runInContext(fs.readFileSync(path.resolve(__dirname,'../public/js/task-access.js'),'utf8'),ctx);
  vm.runInContext(fs.readFileSync(path.resolve(__dirname,'../public/js/utils.js'),'utf8'),ctx);
  vm.runInContext(fs.readFileSync(path.resolve(__dirname,'../public/js/app.js'),'utf8').replace(/  bootstrap\(\);\s*\}\)\(\);\s*$/,'globalThis.audit={state,applyDashboardData,renderCompanyHub,renderPersonalDashboard};})();'),ctx);
  const a=ctx.audit;a.applyDashboardData(scopeDashboard(actor,fixture()));Object.assign(a.state,{loading:false,auth:actor,view:'company',selectedCompanyId:'c1',selectedParticipantId:'p1'});

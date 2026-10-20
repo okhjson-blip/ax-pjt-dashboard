@@ -836,7 +836,7 @@ function normalizePmo(pmo) {
   return { members: members.filter((row) => row.name || row.position || row.email) };
 }
 
-/** 개인 대시보드·협력사 허브·레포트가 함께 세는 참여자. 과제가 없는 PMO 행은 제외한다. */
+/** 협력사 허브·레포트의 참여자 집계. 개인 대시보드의 등록 명단과 달리 과제가 없는 PMO 행은 제외한다. */
 function countedParticipants(company) {
   const pmoEmails = new Set(
     normalizePmo(company?.pmo).members
@@ -1380,4 +1380,31 @@ function buildDashboardChanges(baseline, companies) {
 
 function hasDashboardChanges(changes) {
   return Object.keys(changes || {}).length > 0;
+}
+
+// Only task-detail fields belong to these save buttons; weekly reports use their own flow.
+const TASK_DETAIL_SECTIONS = {
+  basics: ['name', 'startDate', 'endDate', 'goal', 'difficulty', 'workStatus'],
+  process: ['asIsProcess', 'toBeProcess', 'statistics'],
+  members: ['members'],
+  detail: ['name', 'startDate', 'endDate', 'goal', 'difficulty', 'workStatus',
+    'asIsProcess', 'toBeProcess', 'hierarchy', 'projectName', 'statistics', 'members']
+};
+
+function buildTaskDetailChanges(baseline, companies, taskId, section) {
+  const fields = TASK_DETAIL_SECTIONS[section];
+  if (!fields) throw new Error('알 수 없는 저장 구간입니다.');
+  const row = snapshotDashboard(companies).tasks[taskId];
+  if (!row) throw new Error('저장할 과제를 찾을 수 없습니다.');
+  const prev = baseline?.tasks?.[taskId];
+  if (!prev) {
+    // First mid-save creates a task, but does not submit other sections' drafts.
+    const created = { id: taskId, participantId: row.participantId, name: row.name };
+    fields.forEach(key => { created[key] = row[key]; });
+    return { tasks: { created: [created], updated: [], deleted: [] } };
+  }
+  const scoped = { ...prev };
+  fields.forEach(key => { scoped[key] = row[key]; });
+  const update = buildUpdate('tasks', taskId, prev, scoped);
+  return update ? { tasks: { created: [], updated: [update], deleted: [] } } : {};
 }

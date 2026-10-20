@@ -245,7 +245,11 @@
   }
 
   function canManageParticipant(participant) {
-    return isAdmin() || isMine(participant);
+    return taskEditAccess(participant).allowed;
+  }
+
+  function taskEditAccess(participant) {
+    return DashboardTaskAccess.taskEditAccess(state.auth, companyOfParticipant(participant), participant);
   }
 
   function canManageHubParticipants(company = currentCompany()) { return isAdmin() || (isPmo() && company?.id === state.auth?.companyId); }
@@ -283,8 +287,35 @@
     setTimeout(() => el.remove(), 3300);
   }
 
-  async function persist(message) {
-    const changes = buildDashboardChanges(state.baseline, state.companies);
+  function applyScopedTaskSave(saved, changes, submitted) {
+    // Merge just the acknowledged fields. Other entities and sections keep their
+    // original baseline, so their drafts are neither lost nor silently committed.
+    saved.companies.forEach(company => company.participants.forEach(taskOwner => taskOwner.tasks.forEach(ensureTaskFields)));
+    const savedSnapshot = snapshotDashboard(saved.companies);
+    const row = changes.tasks.created[0] || changes.tasks.updated[0];
+    const task = allParticipants().flatMap(({ participant }) => participant.tasks).find(item => item.id === row.id);
+    const acknowledged = savedSnapshot.tasks[row.id];
+    if (!task || !acknowledged) throw new Error('저장된 과제를 확인할 수 없습니다. 최신 정보를 불러와 주세요.');
+    const keys = changes.tasks.created.length ? Object.keys(row).filter(key => !['id', 'participantId'].includes(key)) : Object.keys(row.sets || {});
+    if (row.hierOps) keys.push('hierarchy');
+    if (row.statOps) keys.push('statistics');
+    if (row.memberOps) keys.push('members');
+    const current = snapshotDashboard(state.companies).tasks[row.id];
+    if (!state.baseline.tasks[row.id]) state.baseline.tasks[row.id] = acknowledged;
+    keys.forEach(key => {
+      if (!changed(current[key], submitted.tasks[row.id][key])) task[key] = JSON.parse(JSON.stringify(acknowledged[key]));
+      state.baseline.tasks[row.id][key] = acknowledged[key];
+    });
+    state.meta = saved.meta || state.meta;
+    if (saved.hubCompanies) state.hubCompanies = saved.hubCompanies.map(ensureCompanyFields);
+    state.lastLocalSaveAt = state.meta.lastSavedAt || null;
+  }
+
+  async function persist(message, scope = null) {
+    const changes = scope
+      ? buildTaskDetailChanges(state.baseline, state.companies, scope.taskId, scope.section)
+      : buildDashboardChanges(state.baseline, state.companies);
+    const submitted = scope ? snapshotDashboard(state.companies) : null;
     if (!hasDashboardChanges(changes)) {
       if (message) toast(message);
       return true;
@@ -295,8 +326,9 @@
       const saved = await API.saveDashboardChanges(changes);
       if (seq === saveSeq) {
         if (saved.session) { state.auth=saved.session; API.setToken(state.auth.token); saveSession(); }
-        applyDashboardData(saved);
-        if (isPmo() && (state.auth.participantId || null) !== (currentCompany()?.participants.find(p => String(p.email || '').trim().toLowerCase() === String(state.auth.email || '').trim().toLowerCase())?.id || null)) {
+        if (scope) applyScopedTaskSave(saved, changes, submitted);
+        else applyDashboardData(saved);
+        if (!scope && isPmo() && (state.auth.participantId || null) !== (currentCompany()?.participants.find(p => String(p.email || '').trim().toLowerCase() === String(state.auth.email || '').trim().toLowerCase())?.id || null)) {
           state.auth=await API.session(); API.setToken(state.auth.token); await reloadDashboardData();
         }
       }
@@ -861,7 +893,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
   function renderCompanyHub() {
     const company = state.auth?.role === 'participant' ? (state.hubCompanies.find(c => c.id === state.auth.companyId) || currentCompany()) : currentCompany();
     if (!company) return '<div class="empty">등록된 협력사가 없습니다. 협력사를 추가해 프로젝트를 시작하세요.</div>';
-    const visibleParticipants = personalParticipants(company);
+    const visibleParticipants = countedParticipants(company);
     const taskRows = taskRowsForCompany(company, visibleParticipants);
     const participantCount = visibleParticipants.length;
     const taskCount = company.participants.reduce((sum, participant) => sum + participant.tasks.length, 0);
@@ -939,7 +971,8 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
   }
 
   function personalParticipants(company) {
-    return countedParticipants(company);
+    // Registered profiles must remain selectable before their first task exists.
+    return company?.participants || [];
   }
 
   function renderAdminParticipantOverview(company, { canDelete = true } = {}) {
@@ -1009,7 +1042,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
     if (!canViewParticipant(participant)) {
       return '<div class="empty">본인 과제만 열람할 수 있습니다.</div>';
     }
-    const editable = isMine(participant) || isAdmin();
+    const editable = canManageParticipant(participant);
     const canManageTasks = canManageParticipant(participant);
     const viewingCurrent = isViewingCurrentWeek(company);
     const canEditReport = editable && (viewingCurrent || isAdmin());
@@ -2012,11 +2045,13 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
     if (!task) {
       return modalShell("과제 상세", '<div class="empty">과제를 찾을 수 없습니다.</div>', `<button class="btn primary" data-action="close-modal">닫기</button>`);
     }
-    const editable = canManageParticipant(participant);
+    const access = taskEditAccess(participant);
+    const editable = access.allowed;
     const members = task.members?.length ? task.members : defaultTaskMembers(participant);
     return modalShell(
       "과제 상세",
       `
+      ${editable ? '' : `<p class="helper" role="status">${escapeHtml(access.message)}</p>`}
       <section class="task-add-panel">
         <div class="section-title" style="margin-bottom:8px">
           <div>
@@ -2820,7 +2855,16 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
       const p=company.participants.find(p => p.id === (state.modal === 'editParticipant' ? state.form.participantId : state.form.pendingParticipantId));
       if (p) Object.assign(p,{name,email,dept});
       else { const id=uid('p'); state.form.pendingParticipantId=id; company.participants.push({id,name,email,dept,status:'정상',summary:'',nextWeekPlan:'',instructorMemo:'',tasks:[]}); }
-      if (await persist(p ? '참여자를 수정했습니다.' : '참여자를 등록했습니다.')) closeModal();
+      const registeredId = p?.id || state.form.pendingParticipantId;
+      if (await persist(p ? '참여자를 수정했습니다.' : '참여자를 등록했습니다.')) {
+        if (!editing && isPmo() && registeredId === state.auth.participantId) {
+          state.selectedCompanyId = company.id;
+          state.selectedParticipantId = registeredId;
+          state.selectedTaskId = null;
+          state.view = 'personal';
+        }
+        closeModal();
+      }
     }
 
     if (action === "add-task") {
@@ -2928,8 +2972,9 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
 
     if (action === "save-task-section") {
       const ctx = resolveTaskSectionContext();
-      if (!canManageParticipant(ctx.participant)) {
-        return toast("본인 과제만 수정할 수 있습니다.");
+      const access = taskEditAccess(ctx.participant);
+      if (!access.allowed) {
+        return toast(access.message);
       }
       const task = ensureEditableTaskForSection(ctx);
       if (!task) return;
@@ -2939,7 +2984,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
       if (section === "basics") {
         const applied = applyTaskBasicsFromDom(task, prefix);
         if (!applied.ok) return toast(applied.message);
-        await persist("기본 정보를 중간 저장했습니다.");
+        await persist("기본 정보를 중간 저장했습니다.", { taskId: task.id, section: 'basics' });
         return;
       }
 
@@ -2948,8 +2993,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
         task.asIsProcess = collectProcessText("asis");
         task.toBeProcess = collectProcessText("tobe");
         task.statistics = collectStatistics(prefix);
-        applyProjectNameToTask(task, prefix);
-        await persist("프로세스 설계를 중간 저장했습니다.");
+        await persist("프로세스 설계를 중간 저장했습니다.", { taskId: task.id, section: 'process' });
         return;
       }
 
@@ -2957,7 +3001,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
         const members = collectTaskMembers();
         if (!members.length) return toast("참여자를 한 명 이상 입력해 주세요.");
         task.members = members;
-        await persist("참여자를 중간 저장했습니다.");
+        await persist("참여자를 중간 저장했습니다.", { taskId: task.id, section: 'members' });
         return;
       }
 
@@ -2966,8 +3010,9 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
 
     if (action === "save-task-detail") {
       const participant = currentParticipant();
-      if (!canManageParticipant(participant)) {
-        return toast("본인 과제만 수정할 수 있습니다.");
+      const access = taskEditAccess(participant);
+      if (!access.allowed) {
+        return toast(access.message);
       }
       const task = participant?.tasks.find((t) => t.id === state.form.taskId) || currentTask();
       if (!task) return toast("과제를 찾을 수 없습니다.");
@@ -2983,7 +3028,7 @@ ${canManageHubParticipants() ? '<button class="btn ghost" data-action="open-add-
       applyProjectNameToTask(task, "detail-task-");
       task.statistics = collectStatistics("detail-task-");
       task.members = collectTaskMembers();
-      if (await persist("과제 상세를 저장했습니다.")) closeModal();
+      if (await persist("과제 상세를 저장했습니다.", { taskId: task.id, section: 'detail' })) closeModal();
     }
 
     if (action === "save-schedule") {

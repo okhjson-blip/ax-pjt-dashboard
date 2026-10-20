@@ -9,7 +9,7 @@
       "entrypoint": "app.js",
       "functions": {
         "app.js": {
-          "includeFiles": "backend/**",
+          "includeFiles": "{backend/**,public/js/task-access.js}",
           "maxDuration": 300
         }
       }

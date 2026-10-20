@@ -77,7 +77,8 @@ function uiAudit(data){
   const listeners={};const elements={};const storage={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
   const ctx=vm.createContext({console,Date,setTimeout,clearTimeout,API:{setToken:()=>{}},localStorage:storage,sessionStorage:storage,
     window:{alert:()=>{},confirm:()=>true},document:{getElementById:id=>elements[id]||=( {innerHTML:'',addEventListener:()=>{}}),addEventListener:(name,fn)=>listeners[name]=fn,querySelector:()=>null,querySelectorAll:()=>[]}});
-  vm.runInContext(fs.readFileSync(path.join(root,'public/js/utils.js'),'utf8'),ctx);
+  vm.runInContext(fs.readFileSync(path.resolve(__dirname,'../public/js/task-access.js'),'utf8'),ctx);
+ vm.runInContext(fs.readFileSync(path.join(root,'public/js/utils.js'),'utf8'),ctx);
   const src=fs.readFileSync(path.join(root,'public/js/app.js'),'utf8').replace(/  bootstrap\(\);\s*\}\)\(\);\s*$/,
     'globalThis.audit={state,applyDashboardData,renderTopActions,renderPersonalDashboard,renderTaskDetailModal,renderCompanyHub,renderAdminParticipantOverview,canViewParticipant,canManageParticipant,canManageNotices,lockToOwnParticipant};})();');
   vm.runInContext(src,ctx);
@@ -85,19 +86,23 @@ function uiAudit(data){
   const out=[];
   for(const [name,auth,pid] of [
     ['admin_other',{role:'admin'},'p2'],
-    ['pmo_own',{role:'pmo',companyId:'c1',participantId:'p1'},'p1'],
-    ['pmo_colleague',{role:'pmo',companyId:'c1',participantId:'p1'},'p2'],
-    ['participant_own',{role:'participant',companyId:'c1',participantId:'p2'},'p2'],
-    ['participant_colleague',{role:'participant',companyId:'c1',participantId:'p2'},'p1'],
+    ['pmo_own',{role:'pmo',companyId:'c1',participantId:'p1',name:'Alice',email:'alice@example.com'},'p1'],
+    ['pmo_colleague',{role:'pmo',companyId:'c1',participantId:'p1',name:'Alice',email:'alice@example.com'},'p2'],
+    ['participant_own',{role:'participant',companyId:'c1',participantId:'p2',name:'Bob',email:'bob@example.com'},'p2'],
+    ['participant_colleague',{role:'participant',companyId:'c1',participantId:'p2',name:'Bob',email:'bob@example.com'},'p1'],
     ['pmo_without_participant',{role:'pmo',companyId:'c1',participantId:null},'p1']]){
     a.applyDashboardData(structuredClone(data));Object.assign(a.state,{auth,view:'personal',selectedCompanyId:'c1',selectedParticipantId:pid,selectedTaskId:pid==='p1'?'t1':'t2',selectedWeek:null,form:{taskId:pid==='p1'?'t1':'t2'}});
     const personal=a.renderPersonalDashboard();const detail=a.renderTaskDetailModal();
     a.state.view='company';const hub=a.renderTopActions()+a.renderCompanyHub();
     out.push({name,requestedParticipant:pid,renderedParticipant:a.state.selectedParticipantId,reportSave:personal.includes('data-action="save-personal"'),reportSummaryReadonly:/id="weekly-summary"[^>]*readonly/.test(personal),taskSave:detail.includes('data-action="save-task-detail"'),taskDelete:personal.includes('data-action="delete-task"'),personalOverview:personal.includes('참여자 전체 현황'),personalOwnEdit:personal.includes('data-action="edit-participant" data-company="c1" data-participant="p2"'),personalPeerListed:personal.includes('data-action="select-person" data-company="c1" data-participant="p1"'),personalDelete:personal.includes('data-action="delete-participant"'),hubOverview:hub.includes('참여자 전체 현황'),personalBlocked:personal.includes('본인 과제만 열람할 수 있습니다.'),hubAddParticipant:hub.includes('data-action="open-add-participant"'),hubNoticeCreate:hub.includes('data-action="open-add-notice"'),hubScheduleEdit:hub.includes('data-action="open-schedule"'),hubParticipantDelete:hub.includes('data-action="delete-participant"')});
   }
-  a.state.auth={role:'pmo',companyId:'c1',participantId:'p1'};a.state.selectedParticipantId='p2';a.lockToOwnParticipant();
+  a.state.auth={role:'pmo',companyId:'c1',participantId:'p1',name:'Alice',email:'alice@example.com'};a.state.selectedParticipantId='p2';a.lockToOwnParticipant();
   out.push({name:'pmo_personal_navigation',selectedParticipantAfterLock:a.state.selectedParticipantId,expected:'p1'});
-  a.state.companies[0].participants=a.state.companies[0].participants.filter(p=>p.id==='p1');a.state.companies[0].participants[0].tasks=[];a.state.selectedParticipantId=null;assert(a.renderPersonalDashboard().includes('조회할 참여자가 없습니다.'));
+  a.state.companies[0].participants=a.state.companies[0].participants.filter(p=>p.id==='p1');a.state.companies[0].participants[0].tasks=[];a.state.selectedParticipantId=null;
+  const tasklessPmo=a.renderPersonalDashboard();
+  assert.equal(a.state.selectedParticipantId,'p1');
+  assert(tasklessPmo.includes('data-action="select-person" data-company="c1" data-participant="p1"'));
+  assert(tasklessPmo.includes('data-action="open-add-task" data-company="c1" data-participant="p1"'));
   return out;
 }
 (async()=>{
@@ -119,6 +124,13 @@ function uiAudit(data){
     const r=await api('/dashboard',actor);return {...r,...(actor&&actor!=='admin'&&r.body.companies?.some(c=>c.id==='c2')?{policyViolation:'Other company and personal report data returned'}:{}),evidence:{companies:r.body.companies?.map(c=>c.id),allParticipantIds:r.body.companies?.flatMap(c=>c.participants.map(p=>p.id)),otherCompanyTaskSummary:r.body.companies?.find(c=>c.id==='c2')?.participants[0]?.tasks[0]?.weeklySummary}};
   });
   await check('guest_cannot_write',401,()=>patch(null,taskUpdate('t1','name','Alice task','Edited')));
+  await check('task_denial_returns_specific_reason',403,async()=>{
+    const r=await patch('pmo',taskUpdate('t2','asIsProcess','','Changed'));
+    assert.equal(r.body.code,'TASK_OWNER_MISMATCH');
+    assert.equal(r.body.source,'server');
+    assert.match(r.body.error,/등록자/);
+    return r;
+  });
   for(const [actor,own,other]of [['admin','t1','t3'],['pmo','t1','t2'],['participant','t2','t1']]){
     for(const [scope,id]of [['own',own],['other',other]]){
       const allowed=actor==='admin'||scope==='own';
